@@ -7,7 +7,10 @@ from geometry_msgs.msg import PoseWithCovarianceStamped
 from geometry_msgs.msg import TransformStamped
 from numpy.linalg import inv
 from pyquaternion import Quaternion
-
+# testing: publishing z_tilde
+import rospy
+from ekf.msg import callback_data
+# testing end
 
 class EkfLocalization:
 
@@ -24,6 +27,9 @@ class EkfLocalization:
 		self._R_mat = 0
 		self._F = np.eye(6)
 		self._time_stamp = 0
+		self._cam_id = 0
+		# testing: publishing z_tilde
+		self._pub = rospy.Publisher('/z_tilde', callback_data, queue_size = 1)
         
 
 	def get_x_hat(self):
@@ -44,6 +50,11 @@ class EkfLocalization:
 		L = inv(H_cam_at_x.dot(self._P_mat.dot(H_cam_at_x.T)) + R_mat)
 		K = self._P_mat.dot((H_cam_at_x.T).dot(L))
 		z_tilde = z - h_at_x
+		# testing: publishing z_tilde
+		z_tilde_msg = callback_data()
+		z_tilde_msg.h = z_tilde
+		self._pub.publish(z_tilde_msg)
+		# testing end
 		self._x_hat = self._x_hat + K.dot(z_tilde)
 		self._P_mat = (np.eye(6) - K.dot(H_cam_at_x)).dot(self._P_mat)
 
@@ -53,12 +64,13 @@ class EkfLocalization:
 		z_tilde = difference of actual measurement and expectation
 		"""
 
-   	def ekf_get_measurement(self, z, h_at_x, H_cam_at_x, R_mat, time_stamp):
+   	def ekf_get_measurement(self, z, h_at_x, H_cam_at_x, R_mat, time_stamp, cam_id):
 		self._z = z
 		self._h_at_x = h_at_x
 		self._H_cam_at_x = H_cam_at_x
 		self._R_mat = R_mat
 		self._time_stamp = time_stamp
+		self._cam_id = cam_id
 	
         	"""
 		z       : measurement-vector according to the amount of seen tags (3-dimensions x, y, z per seen tag)

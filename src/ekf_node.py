@@ -31,8 +31,7 @@ def callback1(msg):  # the purpose of this function is to recieve the position d
 	time_stamp = msg.header.stamp
 	R_cam1 = testcam1.get_R_mat()
 	h_cam1 = testcam1.h_cam(ekf.get_x_hat())
-	H_cam1 = testcam1.get_H_Jac_sym()
-	H_cam1_at_x = testcam1.H_jac_at_x(ekf.get_x_hat(), H_cam1)
+	H_cam1_at_x = testcam1.H_jac_at_x(ekf.get_x_hat())
 	z = np.zeros((15, 1))
 	h_sub = np.zeros((15, 1))
 	R_sub = np.zeros((15, 15))
@@ -86,7 +85,7 @@ def callback1(msg):  # the purpose of this function is to recieve the position d
 		no_tag1 += 1
 	else:
 		R_start = np.diag([R_sub[0], R_sub[1], R_sub[2]])
-		no_tag1 = 1
+		no_tag1 = 1 # reset no tag counter
 		i, k = 0, 0
 		while k < (len(msg.detections)-1):
 			if len(msg.detections) == 1:
@@ -117,7 +116,7 @@ def callback1(msg):  # the purpose of this function is to recieve the position d
 	z = z.reshape(len(z), 1) 						# new measurement-vector considering only the position of the tags that are currently measured
 	ekf.predict()
 	if not len(z) == 0:
-		ekf.ekf_get_measurement(z, h_sub, H_start, R_start, time_stamp)	# passing the matrices to "ekf", a class instance of EkfLocalization
+		ekf.ekf_get_measurement(z, h_sub, H_start, R_start, time_stamp, testcam1._cam_id)	# passing the matrices to "ekf", a class instance of EkfLocalization
 		ekf.update(z, h_sub, H_start, R_start)				# ekf.update is only called when a measurement 
 		"""
 		z       : measurement-vector according to the amount of seen tags (3-dimensions x, y, z per seen tag)
@@ -161,8 +160,7 @@ def callback2(msg):  # sole purpose of this function is to recieve the position 
 	time_stamp = msg.header.stamp
 	R_cam2 = testcam2.get_R_mat()
 	h_cam2 = testcam2.h_cam(ekf.get_x_hat())
-	H_cam2 = testcam2.get_H_Jac_sym()
-	H_cam2_at_x = testcam2.H_jac_at_x(ekf.get_x_hat(), H_cam2)
+	H_cam2_at_x = testcam2.H_jac_at_x(ekf.get_x_hat())
 	z = np.zeros((15, 1))
 	h_sub = np.zeros((15, 1))
 	R_sub = np.zeros((15, 15))
@@ -216,7 +214,7 @@ def callback2(msg):  # sole purpose of this function is to recieve the position 
 		no_tag2 += 1
 	else:
 		R_start = np.diag([R_sub[0], R_sub[1], R_sub[2]])
-		no_tag2 = 1
+		no_tag2 = 1 # reset no tag counter
 		i, k = 0, 0
 		while k < (len(msg.detections)-1):
 			if len(msg.detections) == 1:
@@ -247,7 +245,7 @@ def callback2(msg):  # sole purpose of this function is to recieve the position 
 	z = z.reshape(len(z), 1) 						# new measurement-vector considering only the position of the tags that are currently measured
 	ekf.predict()
 	if not len(z) == 0:
-		ekf.ekf_get_measurement(z, h_sub, H_start, R_start, time_stamp)	# passing the matrices to "ekf", a class instance of EkfLocalization
+		ekf.ekf_get_measurement(z, h_sub, H_start, R_start, time_stamp, testcam2._cam_id)	# passing the matrices to "ekf", a class instance of EkfLocalization
 		ekf.update(z, h_sub, H_start, R_start)				# ekf.update is only called when a measurement 
 		"""
 		z       : measurement-vector according to the amount of seen tags (3-dimensions x, y, z per seen tag)
@@ -295,26 +293,43 @@ pub_tf_cam2 = tf2_ros.TransformBroadcaster()
 
 # initiating globals for all cameras
 x_hat_0 = np.array([0, 0, 0, 0, 0, 0]).reshape(6, 1)
-P_mat_0 = np.diag([100, 100, 100, 0.5, 0.5, 0.5])
-process_noise = 0.5
-Q_mat = np.diag([process_noise ** 2, process_noise ** 2, process_noise ** 2, process_noise ** 2, process_noise ** 2, process_noise ** 2])
+P_mat_0 = np.diag([10, 10, 10, 0.5, 0.5, 0.5])
+process_noise_pos = 0.3
+process_noise_angle = 0.1
+Q_mat = np.diag([process_noise_pos ** 2,
+ 		 process_noise_pos ** 2, 
+		 process_noise_pos ** 2, 
+		 process_noise_angle ** 2, 
+		 process_noise_angle ** 2, 
+		 process_noise_angle ** 2])
 ekf = ekf_model.EkfLocalization(x_hat_0, P_mat_0, Q_mat, pub_ekf_output, pub_tf_object)
 
 # initiating camera 1
-R_cam1 = np.eye(15) * (np.array([1.5 * (10 ** -6), 1.5 * (10 ** -6), 3 * (10 ** -4), 1.5 * (10 ** -6), 1.5 * (10 ** -6), 3 * (10 ** -4), 1.5 * (10 ** -6), 1.5 * (10 ** -6), 3 * (10 ** -4), 1.5 * (10 ** -6), 1.5 * (10 ** -6), 3 * (10 ** -4), 1.5 * (10 ** -6), 1.5 * (10 ** -6), 3 * (10 ** -4)]).reshape(15, 1)) # measurement noise
+R_cam1 = np.diag(np.array([1.5 * (10 ** -6), 1.5 * (10 ** -6), 3 * (10 ** -4),
+			   1.5 * (10 ** -6), 1.5 * (10 ** -6), 3 * (10 ** -4),
+			   1.5 * (10 ** -6), 1.5 * (10 ** -6), 3 * (10 ** -4),
+			   1.5 * (10 ** -6), 1.5 * (10 ** -6), 3 * (10 ** -4),
+			   1.5 * (10 ** -6), 1.5 * (10 ** -6), 3 * (10 ** -4)]))*1000 # measurement noise
 testcam1 = cam.camera(1, -0.13027812, 0.77786706, -0.85595675, -0.4727079075435697, 0.015231312520850101, 0.03427884792178946, R_cam1)
-no_tag1 = 1
-#old orientation data (a = -1.0472, b = 0, c = -math.pi/2)0.4727079075435697, 0.015231312520850101, 0.03427884792178946,
+no_tag1 = 1 # init no tag counter
 
 # initiating camera 2
-R_cam2 = np.eye(15) * (np.array([1.5 * (10 ** -6), 1.5 * (10 ** -6), 3 * (10 ** -4), 1.5 * (10 ** -6), 1.5 * (10 ** -6), 3 * (10 ** -4), 1.5 * (10 ** -6), 1.5 * (10 ** -6), 3 * (10 ** -4), 1.5 * (10 ** -6), 1.5 * (10 ** -6), 3 * (10 ** -4), 1.5 * (10 ** -6), 1.5 * (10 ** -6), 3 * (10 ** -4)]).reshape(15, 1)) # measurement noise
+R_cam2 = np.diag(np.array([1.5 * (10 ** -6), 1.5 * (10 ** -6), 3 * (10 ** -4),
+			   1.5 * (10 ** -6), 1.5 * (10 ** -6), 3 * (10 ** -4),
+			   1.5 * (10 ** -6), 1.5 * (10 ** -6), 3 * (10 ** -4),
+			   1.5 * (10 ** -6), 1.5 * (10 ** -6), 3 * (10 ** -4),
+			   1.5 * (10 ** -6), 1.5 * (10 ** -6), 3 * (10 ** -4)]))*1000 # measurement noise
 testcam2 = cam.camera(2, -0.17621339, 0.09021926, -0.85382418, 0.4172191040475571, 0.014481942780375505, 3.1249935327318172, R_cam2)
-no_tag2 = 1
+no_tag2 = 1 # init no tag counter
 
 def main():
 	rospy.init_node('ekf')
 	rospy.Subscriber("/tag_detections1", AprilTagDetectionArray, callback1, queue_size=1)
 	rospy.Subscriber("/tag_detections2", AprilTagDetectionArray, callback2, queue_size=1)
+	# only publishung once, never reentering the loop
+	ekf.predict()
+	ekf.ekf_publish(ekf.get_time_stamp(), ekf.get_x_hat(), ekf.get_P_mat())
+	# not publishing noticeably faster after additional prediction and publish step. atleast the uncertainty should have increased
 	rospy.spin()
 
 
