@@ -22,8 +22,8 @@ note: I strongly recommend to keep the tag in the horizontal middle axis of the 
 
 
 # globals
-pos_tag_w = np.array([-0.193, 0.487, 0]).reshape(3, 1)		# position of the calibration-tag in world coordinates (change everytime the tag gets moved somewhere else)
-phi = math.pi/2						# angle of which the tag is rotated around z-axis (in relation to the world system)
+pos_tag_w = np.array([1, 1.63, 0]).reshape(3, 1)		# position of the calibration-tag in world coordinates (change everytime the tag gets moved somewhere else)
+phi = 0								# angle of which the tag is rotated around z-axis (in relation to the world system)
 Rot_tag2w_temp = inv(np.array([[math.cos(phi), -math.sin(phi), 0],
 			[math.sin(phi), math.cos(phi), 0],
 			[0, 0, 1]]).reshape(3, 3))
@@ -106,7 +106,7 @@ def callback(msg):
 
 def main():
 	rospy.init_node('get_camera_pos_ori')
-	rospy.Subscriber("/tag_detections2", AprilTagDetectionArray, callback, queue_size=1)  # subscribe to "/tag_detectionsi" to calibrate "camera i"
+	rospy.Subscriber("/tag_detections1", AprilTagDetectionArray, callback, queue_size=1)  # subscribe to "/tag_detectionsi" to calibrate "camera i"
 	rospy.spin()
 
 

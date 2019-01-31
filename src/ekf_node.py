@@ -42,37 +42,37 @@ def callback1(msg):  # the purpose of this function is to recieve the position d
 			h_sub[0:3, 0:1] += h_cam1[0:3, 0:1]		
 			R_sub[0:3, 0:3] += R_cam1[0:3, 0:3]
 			H_jac_at_x_sub[0:3, 0:6] += H_cam1_at_x[0:3, 0:6]
-			z[0] += msg.detections[i].pose.pose.pose.position.x
-			z[1] += msg.detections[i].pose.pose.pose.position.y
-			z[2] += msg.detections[i].pose.pose.pose.position.z
+			z[0] += msg.detections[i].pose.pose.pose.position.z
+			z[1] += msg.detections[i].pose.pose.pose.position.x
+			z[2] += msg.detections[i].pose.pose.pose.position.y
 		elif msg.detections[i].id == (41,):
 			h_sub[3:6, 0:1] += h_cam1[3:6, 0:1]
 			R_sub[3:6, 3:6] += R_cam1[3:6, 3:6]
 			H_jac_at_x_sub[3:6, 0:6] += H_cam1_at_x[3:6, 0:6]
-			z[3] += msg.detections[i].pose.pose.pose.position.x
-			z[4] += msg.detections[i].pose.pose.pose.position.y
-			z[5] += msg.detections[i].pose.pose.pose.position.z
+			z[3] += msg.detections[i].pose.pose.pose.position.z
+			z[4] += msg.detections[i].pose.pose.pose.position.x
+			z[5] += msg.detections[i].pose.pose.pose.position.y
 		elif msg.detections[i].id == (42,):
 			h_sub[6:9, 0:1] += h_cam1[6:9, 0:1]
 			R_sub[6:9, 6:9] += R_cam1[6:9, 6:9]
 			H_jac_at_x_sub[6:9, 0:6] += H_cam1_at_x[6:9, 0:6]
-			z[6] += msg.detections[i].pose.pose.pose.position.x
-			z[7] += msg.detections[i].pose.pose.pose.position.y
-			z[8] += msg.detections[i].pose.pose.pose.position.z
+			z[6] += msg.detections[i].pose.pose.pose.position.z
+			z[7] += msg.detections[i].pose.pose.pose.position.x
+			z[8] += msg.detections[i].pose.pose.pose.position.y
 		elif msg.detections[i].id == (43,):
 			h_sub[9:12, 0:1] += h_cam1[9:12, 0:1]
 			R_sub[9:12, 9:12] += R_cam1[9:12, 9:12]
 			H_jac_at_x_sub[9:12, 0:6] += H_cam1_at_x[9:12, 0:6]
-			z[9] += msg.detections[i].pose.pose.pose.position.x
-			z[10] += msg.detections[i].pose.pose.pose.position.y
-			z[11] += msg.detections[i].pose.pose.pose.position.z
+			z[9] += msg.detections[i].pose.pose.pose.position.z	# z, x, y because the camera uses the EDN system instead of our NEU system
+			z[10] += msg.detections[i].pose.pose.pose.position.x
+			z[11] += msg.detections[i].pose.pose.pose.position.y
 		elif msg.detections[i].id == (44,):
 			h_sub[12:15, 0:1] += h_cam1[12:15, 0:1]
 			R_sub[12:15, 12:15] += R_cam1[12:15, 12:15]
 			H_jac_at_x_sub[12:15, 0:6] += H_cam1_at_x[12:15, 0:6]
-			z[12] += msg.detections[i].pose.pose.pose.position.x
-			z[13] += msg.detections[i].pose.pose.pose.position.y
-			z[14] += msg.detections[i].pose.pose.pose.position.z
+			z[12] += msg.detections[i].pose.pose.pose.position.z
+			z[13] += msg.detections[i].pose.pose.pose.position.x
+			z[14] += msg.detections[i].pose.pose.pose.position.y
 		else: 
 			pass
 		i += 1	
@@ -130,17 +130,17 @@ def callback1(msg):  # the purpose of this function is to recieve the position d
 	transforms_cam1 = []
 	ekf_tf_cam1 = TransformStamped()
 	quat_cam1 = quaternion_from_euler(-testcam1._a, -testcam1._b, -testcam1._g)
-	ekf_tf_cam1 = TransformStamped()
 	ekf_tf_cam1.header.stamp = time_stamp
 	ekf_tf_cam1.header.frame_id = 'map'
 	ekf_tf_cam1.child_frame_id = 'camera1'
 	# changing world frame to NWU which is rviz's standart coordinate frame convention
 	cam_location_NED = np.array([testcam1._t_x, testcam1._t_y, testcam1._t_z]).reshape(3, 1)
+	EDN2NED = np.array([0, 0, 1, 1, 0, 0, 0, 1, 0]).reshape(3, 3)
 	NED2NWU = np.array([1, 0, 0, 0, -1, 0, 0, 0, -1]).reshape(3, 3)
 	cam_location_NWU = NED2NWU.dot(cam_location_NED)
 	quat_cam1_temp = Quaternion(np.asarray([quat_cam1[3], quat_cam1[0], quat_cam1[1], quat_cam1[2]]))
 	R_transform1 = quat_cam1_temp.rotation_matrix
-	R_transformed_NWU = NED2NWU.dot(R_transform1)
+	R_transformed_NWU = NED2NWU.dot(EDN2NED).dot(R_transform1)
 	quat_NWU = Quaternion(matrix=R_transformed_NWU)
 	# continue publishing with applied changes
 	ekf_tf_cam1.transform.translation.x = cam_location_NWU[0]
@@ -171,37 +171,37 @@ def callback2(msg):  # sole purpose of this function is to recieve the position 
 			h_sub[0:3, 0:1] += h_cam2[0:3, 0:1]		
 			R_sub[0:3, 0:3] += R_cam2[0:3, 0:3]
 			H_jac_at_x_sub[0:3, 0:6] += H_cam2_at_x[0:3, 0:6]
-			z[0] += msg.detections[i].pose.pose.pose.position.x
-			z[1] += msg.detections[i].pose.pose.pose.position.y
-			z[2] += msg.detections[i].pose.pose.pose.position.z
+			z[0] += msg.detections[i].pose.pose.pose.position.z
+			z[1] += msg.detections[i].pose.pose.pose.position.x
+			z[2] += msg.detections[i].pose.pose.pose.position.y
 		elif msg.detections[i].id == (41,):
 			h_sub[3:6, 0:1] += h_cam2[3:6, 0:1]
 			R_sub[3:6, 3:6] += R_cam2[3:6, 3:6]
 			H_jac_at_x_sub[3:6, 0:6] += H_cam2_at_x[3:6, 0:6]
-			z[3] += msg.detections[i].pose.pose.pose.position.x
-			z[4] += msg.detections[i].pose.pose.pose.position.y
-			z[5] += msg.detections[i].pose.pose.pose.position.z
+			z[3] += msg.detections[i].pose.pose.pose.position.z
+			z[4] += msg.detections[i].pose.pose.pose.position.x
+			z[5] += msg.detections[i].pose.pose.pose.position.y
 		elif msg.detections[i].id == (42,):
 			h_sub[6:9, 0:1] += h_cam2[6:9, 0:1]
 			R_sub[6:9, 6:9] += R_cam2[6:9, 6:9]
 			H_jac_at_x_sub[6:9, 0:6] += H_cam2_at_x[6:9, 0:6]
-			z[6] += msg.detections[i].pose.pose.pose.position.x
-			z[7] += msg.detections[i].pose.pose.pose.position.y
-			z[8] += msg.detections[i].pose.pose.pose.position.z
+			z[6] += msg.detections[i].pose.pose.pose.position.z
+			z[7] += msg.detections[i].pose.pose.pose.position.x
+			z[8] += msg.detections[i].pose.pose.pose.position.y
 		elif msg.detections[i].id == (43,):
 			h_sub[9:12, 0:1] += h_cam2[9:12, 0:1]
 			R_sub[9:12, 9:12] += R_cam2[9:12, 9:12]
 			H_jac_at_x_sub[9:12, 0:6] += H_cam2_at_x[9:12, 0:6]
-			z[9] += msg.detections[i].pose.pose.pose.position.x
-			z[10] += msg.detections[i].pose.pose.pose.position.y
-			z[11] += msg.detections[i].pose.pose.pose.position.z
+			z[9] += msg.detections[i].pose.pose.pose.position.z
+			z[10] += msg.detections[i].pose.pose.pose.position.x
+			z[11] += msg.detections[i].pose.pose.pose.position.y
 		elif msg.detections[i].id == (44,):
 			h_sub[12:15, 0:1] += h_cam2[12:15, 0:1]
 			R_sub[12:15, 12:15] += R_cam2[12:15, 12:15]
 			H_jac_at_x_sub[12:15, 0:6] += H_cam2_at_x[12:15, 0:6]
-			z[12] += msg.detections[i].pose.pose.pose.position.x
-			z[13] += msg.detections[i].pose.pose.pose.position.y
-			z[14] += msg.detections[i].pose.pose.pose.position.z
+			z[12] += msg.detections[i].pose.pose.pose.position.z
+			z[13] += msg.detections[i].pose.pose.pose.position.x
+			z[14] += msg.detections[i].pose.pose.pose.position.y
 		else: 
 			pass
 		i += 1	
@@ -258,18 +258,19 @@ def callback2(msg):  # sole purpose of this function is to recieve the position 
 	# publishing the tf-transformation of the camera1-frame
 	transforms_cam2 = []
 	ekf_tf_cam2 = TransformStamped()
-	quat_cam2 = quaternion_from_euler(testcam2._a, testcam2._b, testcam2._g)
+	quat_cam2 = quaternion_from_euler(-testcam2._a, -testcam2._b, -testcam2._g)
 	ekf_tf_cam2 = TransformStamped()
 	ekf_tf_cam2.header.stamp = time_stamp
 	ekf_tf_cam2.header.frame_id = 'map'
 	ekf_tf_cam2.child_frame_id = 'camera2'
 	# changing world frame to NWU which is rviz standart coordinate frame convention
 	cam_location_NED = np.array([testcam2._t_x, testcam2._t_y, testcam2._t_z]).reshape(3, 1)
+	EDN2NED = np.array([0, 0, -1, -1, 0, 0, 0, 1, 0]).reshape(3, 3)
 	NED2NWU = np.array([1, 0, 0, 0, -1, 0, 0, 0, -1]).reshape(3, 3)
 	cam_location_NWU = NED2NWU.dot(cam_location_NED)
 	quat_cam2_temp = Quaternion(np.asarray([quat_cam2[1], quat_cam2[2], quat_cam2[3], quat_cam2[0]]))
 	R_transform2 = quat_cam2_temp.rotation_matrix
-	R_transformed_NWU = NED2NWU.dot(R_transform2)
+	R_transformed_NWU = NED2NWU.dot(EDN2NED).dot(R_transform2)
 	quat_NWU_temp = Quaternion(matrix=R_transformed_NWU)
 	quat_NWU = Quaternion(quat_NWU_temp[3], quat_NWU_temp[0], quat_NWU_temp[1], quat_NWU_temp[2])
 	# continue publishing
@@ -293,8 +294,9 @@ pub_tf_cam2 = tf2_ros.TransformBroadcaster()
 
 # initiating globals for all cameras
 x_hat_0 = np.array([0, 0, 0, 0, 0, 0]).reshape(6, 1)
-P_mat_0 = np.diag([10, 10, 10, 0.5, 0.5, 0.5])
-process_noise_pos = 0.3
+skalar = 1000000
+P_mat_0 = np.diag([10*skalar, 10*skalar, 10*skalar, 0.5, 0.5, 0.5])
+process_noise_pos = 0.05 # 0.05 ideal bis jetzt (bei nur kamera 1)
 process_noise_angle = 0.1
 Q_mat = np.diag([process_noise_pos ** 2,
  		 process_noise_pos ** 2, 
@@ -310,26 +312,22 @@ R_cam1 = np.diag(np.array([1.5 * (10 ** -6), 1.5 * (10 ** -6), 3 * (10 ** -4),
 			   1.5 * (10 ** -6), 1.5 * (10 ** -6), 3 * (10 ** -4),
 			   1.5 * (10 ** -6), 1.5 * (10 ** -6), 3 * (10 ** -4),
 			   1.5 * (10 ** -6), 1.5 * (10 ** -6), 3 * (10 ** -4)]))*1000 # measurement noise
-testcam1 = cam.camera(1, -0.13027812, 0.77786706, -0.85595675, -0.4727079075435697, 0.015231312520850101, 0.03427884792178946, R_cam1)
-no_tag1 = 1 # init no tag counter
+testcam1 = cam.camera(1, -0.32, 1.525, -0.895, 0, 0, 0, R_cam1)
+no_tag1 = 1 # init "no tag" counter
 
 # initiating camera 2
-R_cam2 = np.diag(np.array([1.5 * (10 ** -6), 1.5 * (10 ** -6), 3 * (10 ** -4),
-			   1.5 * (10 ** -6), 1.5 * (10 ** -6), 3 * (10 ** -4),
-			   1.5 * (10 ** -6), 1.5 * (10 ** -6), 3 * (10 ** -4),
-			   1.5 * (10 ** -6), 1.5 * (10 ** -6), 3 * (10 ** -4),
-			   1.5 * (10 ** -6), 1.5 * (10 ** -6), 3 * (10 ** -4)]))*1000 # measurement noise
-testcam2 = cam.camera(2, -0.17621339, 0.09021926, -0.85382418, 0.4172191040475571, 0.014481942780375505, 3.1249935327318172, R_cam2)
-no_tag2 = 1 # init no tag counter
+R_cam2 = np.diag(np.array([1.5 * (10 ** -6), 1.5 * (10 ** -6), 1.5 * (10 ** -4),
+			   1.5 * (10 ** -6), 1.5 * (10 ** -6), 1.5 * (10 ** -4),
+			   1.5 * (10 ** -6), 1.5 * (10 ** -6), 1.5 * (10 ** -4),
+			   1.5 * (10 ** -6), 1.5 * (10 ** -6), 1.5 * (10 ** -4),
+			   1.5 * (10 ** -6), 1.5 * (10 ** -6), 1.5 * (10 ** -4)]))*1000 # measurement noise
+testcam2 = cam.camera(2, -0.32, 0.326, -0.895, 0, 0, 0, R_cam2)
+no_tag2 = 1 # init "no tag" counter
 
 def main():
 	rospy.init_node('ekf')
 	rospy.Subscriber("/tag_detections1", AprilTagDetectionArray, callback1, queue_size=1)
 	rospy.Subscriber("/tag_detections2", AprilTagDetectionArray, callback2, queue_size=1)
-	# only publishung once, never reentering the loop
-	ekf.predict()
-	ekf.ekf_publish(ekf.get_time_stamp(), ekf.get_x_hat(), ekf.get_P_mat())
-	# not publishing noticeably faster after additional prediction and publish step. atleast the uncertainty should have increased
 	rospy.spin()
 
 

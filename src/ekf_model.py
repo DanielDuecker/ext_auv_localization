@@ -57,6 +57,8 @@ class EkfLocalization:
 		# testing end
 		self._x_hat = self._x_hat + K.dot(z_tilde)
 		self._P_mat = (np.eye(6) - K.dot(H_cam_at_x)).dot(self._P_mat)
+		print 'z_tilde:'
+		print z_tilde
 
 		"""
 		L = auxiliary variable

@@ -91,7 +91,7 @@ class camera:
 				[0, 0, 1]])
 		#R_permut = np.array([[0, 0, 1], [1, 0, 0], [0, 1, 0]])		# needed to adjust world koordinate system to cam koordinate system
 		#R_world2cam = R_permut.dot(R_z).dot(R_y).dot(R_x)		# rotation matrix from world to camera
-		R_world2cam = R_z.dot(R_y).dot(R_x)		# rotation matrix from world to camera
+		R_world2cam = R_z.dot(R_y).dot(R_x)				# rotation matrix from world to camera
 		offsetcam = R_world2cam.dot(-np.array([self._t_x, self._t_y, self._t_z]).reshape(3, 1)) # old positions self._t_x, self._t_y, self._t_z
 		T_world2cam = np.block([					# Transformation matrix from world to camera
 					[R_world2cam, offsetcam],
