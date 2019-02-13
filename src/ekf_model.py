@@ -12,6 +12,7 @@ import rospy
 from ekf.msg import callback_data
 # testing end
 
+
 class EkfLocalization:
 
 	def __init__(self, x_hat_0, P_mat_0, Q_mat, pub_ekf_output, pub_tf_object):
@@ -30,7 +31,6 @@ class EkfLocalization:
 		self._cam_id = 0
 		# testing: publishing z_tilde
 		self._pub = rospy.Publisher('/z_tilde', callback_data, queue_size = 1)
-        
 
 	def get_x_hat(self):
 		return self._x_hat

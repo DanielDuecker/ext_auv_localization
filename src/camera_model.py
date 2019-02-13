@@ -9,6 +9,7 @@ from tf.transformations import quaternion_from_euler # defined q = (x, y, z, w)
 from tf.transformations import quaternion_inverse
 from tf.transformations import quaternion_multiply
 from pyquaternion import Quaternion  # defined q = (w, x, y, z)
+from geometry_msgs.msg import TransformStamped
 
 
 class camera:
@@ -194,3 +195,130 @@ class camera:
     		H_jac_at_x_sympy = H_jac.subs(zip([x, y, z, p, t, s], [x_w_hat_help[0], x_w_hat_help[1], x_w_hat_help[2], x_w_hat_help[3], x_w_hat_help[4], x_w_hat_help[5]]))
     		H_jac_at_x = np.array(H_jac_at_x_sympy).astype(np.float64)
     		return H_jac_at_x
+    		
+    	def callcam(self, ekf, pub_tf_cam, no_tag, msg):
+		time_stamp = msg.header.stamp
+		R_cam =self._R_mat
+		h_cam = self.h_cam(ekf.get_x_hat())
+		H_cam_at_x = self.H_jac_at_x(ekf.get_x_hat())
+		z = np.zeros((15, 1))
+		h_sub = np.zeros((15, 1))
+		R_sub = np.zeros((15, 15))
+		H_jac_at_x_sub = np.zeros((15, 6))
+		i = 0
+		while i < len(msg.detections):
+			if msg.detections[i].id == (40,):  # paranthesis and comma necessary since only then does "msg.detections[i].id" truely equal the subscriber output (query about tag-id)
+				h_sub[0:3, 0:1] += h_cam[0:3, 0:1]		
+				R_sub[0:3, 0:3] += R_cam[0:3, 0:3]
+				H_jac_at_x_sub[0:3, 0:6] += H_cam_at_x[0:3, 0:6]
+				z[0] += msg.detections[i].pose.pose.pose.position.z
+				z[1] += msg.detections[i].pose.pose.pose.position.x
+				z[2] += msg.detections[i].pose.pose.pose.position.y
+			elif msg.detections[i].id == (41,):
+				h_sub[3:6, 0:1] += h_cam[3:6, 0:1]
+				R_sub[3:6, 3:6] += R_cam[3:6, 3:6]
+				H_jac_at_x_sub[3:6, 0:6] += H_cam_at_x[3:6, 0:6]
+				z[3] += msg.detections[i].pose.pose.pose.position.z
+				z[4] += msg.detections[i].pose.pose.pose.position.x
+				z[5] += msg.detections[i].pose.pose.pose.position.y
+			elif msg.detections[i].id == (42,):
+				h_sub[6:9, 0:1] += h_cam[6:9, 0:1]
+				R_sub[6:9, 6:9] += R_cam[6:9, 6:9]
+				H_jac_at_x_sub[6:9, 0:6] += H_cam_at_x[6:9, 0:6]
+				z[6] += msg.detections[i].pose.pose.pose.position.z
+				z[7] += msg.detections[i].pose.pose.pose.position.x
+				z[8] += msg.detections[i].pose.pose.pose.position.y
+			elif msg.detections[i].id == (43,):
+				h_sub[9:12, 0:1] += h_cam[9:12, 0:1]
+				R_sub[9:12, 9:12] += R_cam[9:12, 9:12]
+				H_jac_at_x_sub[9:12, 0:6] += H_cam_at_x[9:12, 0:6]
+				z[9] += msg.detections[i].pose.pose.pose.position.z	# z, x, y because the camera uses the EDN system instead of our NEU system
+				z[10] += msg.detections[i].pose.pose.pose.position.x
+				z[11] += msg.detections[i].pose.pose.pose.position.y
+			elif msg.detections[i].id == (44,):
+				h_sub[12:15, 0:1] += h_cam[12:15, 0:1]
+				R_sub[12:15, 12:15] += R_cam[12:15, 12:15]
+				H_jac_at_x_sub[12:15, 0:6] += H_cam_at_x[12:15, 0:6]
+				z[12] += msg.detections[i].pose.pose.pose.position.z
+				z[13] += msg.detections[i].pose.pose.pose.position.x
+				z[14] += msg.detections[i].pose.pose.pose.position.y
+			else: 
+				pass
+			i += 1	
+
+		R_sub = R_sub[R_sub.nonzero()]  # one dimensional vector containing all non zero values of the 15x15 R matrix
+		z = z[z.nonzero()]
+		# making a diagonal matrix R out of nonzero elements of R_sub ONLY IF WE SEE A TAG AT ALL(ultimate goal: scaling R according to how many and which tags we see)
+		if len(msg.detections) == 0:
+			print('camera'+'{}'+': no tag detected for {} steps'.format(self._cam_id, no_tag))
+			no_tag += 1
+		else:
+			R_start = np.diag([R_sub[0], R_sub[1], R_sub[2]])
+			no_tag = 1 # reset no tag counter
+			i, k = 0, 0
+			while k < (len(msg.detections)-1):
+				if len(msg.detections) == 1:
+					break
+				else:
+					R_start = np.block([[R_start, np.zeros((i+3, 3))], [np.zeros((3, i+3)), np.diag([R_sub[i+3], R_sub[i+4], R_sub[i+5]])]])
+					i += 3
+					k += 1
+
+			# building H_at_x and h_sub out of the tags we see (by getting ignorung the sub-arrays that are '0')
+			sH = 0
+			lH = 0
+			H_start = np.zeros((15, 6))
+			while sH/3 < 15:
+				if np.any(H_jac_at_x_sub[sH:sH+3, 0:6]) == True:           # Scan the first 3 lines of H_jac_at_x_sub, if any of the elements are not zero, fill H_start with these lines. 
+					H_start[lH:lH+3, 0:6] = H_cam_at_x[sH:sH+3, 0:6]
+					h_sub[lH:lH+3, 0:1] = h_cam[sH:sH+3, 0:1]
+					lH += 3
+				sH += 3							   # If all elements from these lines are equal to zero, move on the the next 3 lines as long as sH/3 < 15
+			H_start, garbage = np.vsplit(H_start, [3*len(msg.detections)])
+			h_sub, trash = np.vsplit(h_sub, [3*len(msg.detections)])
+			# print('R_start', R_start)					# new R_matrix with variances and covariances of the tags that are measured right now (max. 15x15)
+			# print('H_start', H_start)  					# new H_matrix only considering the position of the tags that are currently measured (max. 15x6)
+		# turning h_sub (row-vector by default) into a column-vector
+		h_sub = h_sub.reshape(len(h_sub), 1)  					# new h_function only considering the position of the tags that are currently measured (max. 15x1)
+		# print('h_sub', h_sub)
+		# turning z (row-vector by default) into column-vactor
+		z = z.reshape(len(z), 1) 						# new measurement-vector considering only the position of the tags that are currently measured
+		ekf.predict()
+		if not len(z) == 0:
+			ekf.ekf_get_measurement(z, h_sub, H_start, R_start, time_stamp, self._cam_id)	# passing the matrices to "ekf", a class instance of EkfLocalization
+			ekf.update(z, h_sub, H_start, R_start)				# ekf.update is only called when a measurement 
+			"""
+			z       : measurement-vector according to the amount of seen tags (3-dimensions x, y, z per seen tag)
+			h_sub   : measurement function scaled to amount of tags seen
+			H_start : scaled Jacobian at the position x_hat (also according to amount of seen tags)
+			R_start : Covariance matrix scaled according to seen tags
+			"""
+		# publishing Position, Orientation and Covariance as output of the Extended-Kalman-Filter
+		ekf.ekf_publish(time_stamp, ekf.get_x_hat(), ekf.get_P_mat())
+		# publishing the tf-transformation of the camera1-frame
+		transforms_cam = []
+		ekf_tf_cam = TransformStamped()
+		quat_cam = quaternion_from_euler(-self._a, -self._b, -self._g)
+		ekf_tf_cam.header.stamp = time_stamp
+		ekf_tf_cam.header.frame_id = 'map'
+		ekf_tf_cam.child_frame_id = 'camera'+'{}'.format(self._cam_id)
+		# changing world frame to NWU which is rviz's standart coordinate frame convention
+		cam_location_NED = np.array([self._t_x, self._t_y, self._t_z]).reshape(3, 1)
+		#EDN2NED = np.array([0, 0, 1, 1, 0, 0, 0, 1, 0]).reshape(3, 3)
+		EDN2NED = np.array([0, 0, 1, 1, 0, 0, 0, 1, 0]).reshape(3, 3)
+		NED2NWU = np.array([1, 0, 0, 0, -1, 0, 0, 0, -1]).reshape(3, 3)
+		cam_location_NWU = NED2NWU.dot(cam_location_NED)
+		quat_cam_temp = Quaternion(np.asarray([quat_cam[3], quat_cam[0], quat_cam[1], quat_cam[2]]))
+		R_transform = quat_cam_temp.rotation_matrix
+		R_transformed_NWU = NED2NWU.dot(EDN2NED).dot(R_transform)
+		quat_NWU = Quaternion(matrix=R_transformed_NWU)
+		# continue publishing with applied changes
+		ekf_tf_cam.transform.translation.x = cam_location_NWU[0]
+		ekf_tf_cam.transform.translation.y = cam_location_NWU[1]
+		ekf_tf_cam.transform.translation.z = cam_location_NWU[2]
+		ekf_tf_cam.transform.rotation.x = quat_NWU[1]
+		ekf_tf_cam.transform.rotation.y = quat_NWU[2]
+		ekf_tf_cam.transform.rotation.z = quat_NWU[3]
+		ekf_tf_cam.transform.rotation.w = quat_NWU[0]
+		transforms_cam.append(ekf_tf_cam)
+		pub_tf_cam.sendTransform(transforms_cam)  # rename into name of the publisher
