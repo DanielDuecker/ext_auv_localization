@@ -72,9 +72,9 @@ pub_tf_cam6 = tf2_ros.TransformBroadcaster()
 
 # initiating globals for all cameras
 x_hat_0 = np.array([0.25, 0.45, -0.8, 0, 0, 0]).reshape(6, 1)
-skalar = 10000
+skalar = 10
 P_mat_0 = np.diag([10*skalar, 10*skalar, 10*skalar, 0.5, 0.5, 0.5])
-process_noise_pos = 0.05
+process_noise_pos = 0.03
 process_noise_angle = 0.1
 Q_mat = np.diag([process_noise_pos ** 2,
  		 process_noise_pos ** 2, 
