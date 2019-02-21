@@ -27,7 +27,7 @@ class EkfLocalization:
 		self._H_cam_at_x = 0
 		self._R_mat = 0
 		self._F = np.eye(6)
-		self._time_stamp = 0
+		#self._time_stamp = 0.0
 		self._cam_id = 0
 		# testing: publishing z_tilde
 		self._pub = rospy.Publisher('/z_tilde', callback_data, queue_size = 1)
@@ -55,10 +55,24 @@ class EkfLocalization:
 		z_tilde_msg.h = z_tilde
 		self._pub.publish(z_tilde_msg)
 		# testing end
+		# limit size of angles by +/- pi
 		self._x_hat = self._x_hat + K.dot(z_tilde)
 		self._P_mat = (np.eye(6) - K.dot(H_cam_at_x)).dot(self._P_mat)
-		print 'z_tilde:'
-		print z_tilde
+		if self._x_hat[3] > 0.0:
+			self._x_hat[3] = np.mod(self._x_hat[3], np.pi)
+		elif self._x_hat[3] < 0.0:
+			self._x_hat[3] = -np.mod(-self._x_hat[3], np.pi)
+		
+		if self._x_hat[4] > 0.0:
+			self._x_hat[4] = np.mod(self._x_hat[4], np.pi)
+		elif self._x_hat[4] < 0.0:
+			self._x_hat[4] = -np.mod(-self._x_hat[4], np.pi)
+			
+		if self._x_hat[5] > 0.0:
+			self._x_hat[5] = np.mod(self._x_hat[5], np.pi)
+		elif self._x_hat[5] < 0.0:
+			self._x_hat[5] = -np.mod(-self._x_hat[5], np.pi)
+		
 
 		"""
 		L = auxiliary variable
@@ -87,7 +101,7 @@ class EkfLocalization:
 
 		# publishing Position, Orientation and Covariance as output of the Extended-Kalman-Filter
 		ekfOutput_msg = PoseWithCovarianceStamped()
-		ekfOutput_msg.header.stamp = self._time_stamp
+		ekfOutput_msg.header.stamp = time_stamp
 		ekfOutput_msg.header.frame_id = 'cube'
 		ekfOutput_msg.pose.pose.position.x = x_hat[0]
 		ekfOutput_msg.pose.pose.position.y = x_hat[1]
@@ -97,14 +111,15 @@ class EkfLocalization:
 		ekfOutput_msg.pose.pose.orientation.z = quat[2]
 		ekfOutput_msg.pose.pose.orientation.w = quat[3]
 		covar = P.flatten()  # published covariance matrix must be of type 'array' while P is still of type 'numpy.ndarray'. flatten() converts type ndarray to type array
-		ekfOutput_msg.pose.covariance = covar
+		
+		ekfOutput_msg.pose.covariance = covar.tolist()
 		self._pub_ekf_output.publish(ekfOutput_msg)
 
 
 		# publishing the tf-transformation of the cube/boat/object-frame
 		transforms = []
 		ekf_tf_msg = TransformStamped()
-		ekf_tf_msg.header.stamp = time_stamp
+		ekf_tf_msg.header.stamp  = time_stamp
 		ekf_tf_msg.header.frame_id = 'map'
 		ekf_tf_msg.child_frame_id = 'cube'
 		# changing world frame to NWU which is rviz standart coordinate frame convention (doing so by converting quat into a rotation matrix and transforming it into rviz standart)
