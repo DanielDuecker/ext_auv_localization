@@ -14,7 +14,7 @@ from geometry_msgs.msg import TransformStamped
 
 class camera:
 
-	def __init__(self, cam_id, t_x, t_y, t_z, a, b, g, R_mat):
+	def __init__(self, cam_id, t_x, t_y, t_z, a, b, g, R_mat,z_scale):
 		self._cam_id = cam_id
 		self._t_x = t_x
 		self._t_y = t_y
@@ -23,6 +23,7 @@ class camera:
 		self._b = b
 		self._g = g
 		self._R_mat = R_mat
+		self._z_scale = z_scale
 		# class variables
 		self._H_jacobi_sym = self.compute_jacobian()		# symbolic Jacobian of h (variables have not been subsidied)
 
@@ -51,16 +52,28 @@ class camera:
     		x_w = x_cube_w[0]
     		y_w = x_cube_w[1]
    		z_w = x_cube_w[2]
-    		p = x_cube_w[3]  # phi
-    		t = x_cube_w[4]  # theta
-    		s = x_cube_w[5]  # psi
+    		p = x_cube_w[3]*0  # phi
+    		t = x_cube_w[4]*0  # theta
+    		s = x_cube_w[5]*0 +math.pi/2 # psi
 
 		# vectors from cube-center to tag-center (cube-system)
-		offset1 = np.array([0, -0.075, 0, 1]).reshape(4, 1)
-		offset2 = np.array([-0.075, 0, 0, 1]).reshape(4, 1)
-		offset3 = np.array([0, 0.075, 0, 1]).reshape(4, 1)
+		"""
+		old offsets
+		"""
+		#offset1 = np.array([0, -0.075, 0, 1]).reshape(4, 1)
+		#offset2 = np.array([-0.075, 0, 0, 1]).reshape(4, 1)
+		#offset3 = np.array([0, 0.075, 0, 1]).reshape(4, 1)
+		#offset4 = np.array([0, 0, -0.075, 1]).reshape(4, 1)
+		#offset5 = np.array([0, 0, 0.075, 1]).reshape(4, 1)
+		"""
+		new offsets
+		"""
+		offset1 = np.array([0.075, 0, 0, 1]).reshape(4, 1)
+		offset2 = np.array([0, -0.075, 0, 1]).reshape(4, 1)
+		offset3 = np.array([-0.075, 0, 0, 1]).reshape(4, 1)
 		offset4 = np.array([0, 0, -0.075, 1]).reshape(4, 1)
-		offset5 = np.array([0, 0, 0.075, 1]).reshape(4, 1)
+		offset5 = np.array([0, 0, 0.075, 1]).reshape(4, 1)		
+		
 		offset = np.array([offset1, offset2, offset3, offset4, offset5]).reshape(20, 1)
 		
 
@@ -119,7 +132,7 @@ class camera:
 			h[i:i+3, 0:1] = h_temp[0:3]
 			i += 3
 			j_counter +=4
-		"""
+		
 		# this section is only needed to compute h for the jacobian-function (computes h with variables -> not h_at_x)
 		
 		# creating h_but_not_at_x (for H_jac_at_x) analog to above, only with variables instead of concrete numbers
@@ -175,7 +188,7 @@ class camera:
 			j_counter +=4
 		print 'h_sympy:'
 		print h_sympy
-		"""
+		
 
 		# returning h_at_x
 		return h							# 15x1 vector showing the position of all tags depending on the cube's position
@@ -230,10 +243,12 @@ class camera:
     		return H_jac_at_x
     		
     	def callcam(self, ekf, pub_tf_cam, no_tag, msg):
+	    	#print('ekfcallcam: get x5 = ' + str(ekf.get_x_hat()[5]))
     		ekf.predict()
 		time_stamp = msg.header.stamp
 		if len(msg.detections) == 0:
-				print('camera'+'{}: no tag detected'.format(self._cam_id))
+				#print('camera'+'{}: no tag detected'.format(self._cam_id))
+				pass
 		else:# len(msg.detections) == 0:
 			R_cam =self._R_mat
 			h_cam = self.h_cam(ekf.get_x_hat())
@@ -243,43 +258,43 @@ class camera:
 			R_sub = np.zeros((15, 15))
 			H_jac_at_x_sub = np.zeros((15, 6))
 			i = 0
-			z_scale = 1/1.35
+			#z_scale = 1/1.35
 			while i < len(msg.detections):
-				if msg.detections[i].id == (40,):  # paranthesis and comma necessary since only then does "msg.detections[i].id" truely equal the subscriber output (query about tag-id)
+				if msg.detections[i].id == (45,):  # paranthesis and comma necessary since only then does "msg.detections[i].id" truely equal the subscriber output (query about tag-id)
 					h_sub[0:3, 0:1] += h_cam[0:3, 0:1]		
 					R_sub[0:3, 0:3] += R_cam[0:3, 0:3]
 					H_jac_at_x_sub[0:3, 0:6] += H_cam_at_x[0:3, 0:6]
-					z[0] += msg.detections[i].pose.pose.pose.position.x  		#z
-					z[1] += msg.detections[i].pose.pose.pose.position.y  		#x
-					z[2] += msg.detections[i].pose.pose.pose.position.z*z_scale	#y
-				elif msg.detections[i].id == (41,):
+					z[0] += msg.detections[i].pose.pose.pose.position.x  			#z
+					z[1] += msg.detections[i].pose.pose.pose.position.y  			#x
+					z[2] += msg.detections[i].pose.pose.pose.position.z*self._z_scale	#y
+				elif msg.detections[i].id == (46,):
 					h_sub[3:6, 0:1] += h_cam[3:6, 0:1]
 					R_sub[3:6, 3:6] += R_cam[3:6, 3:6]
 					H_jac_at_x_sub[3:6, 0:6] += H_cam_at_x[3:6, 0:6]
 					z[3] += msg.detections[i].pose.pose.pose.position.x
 					z[4] += msg.detections[i].pose.pose.pose.position.y
-					z[5] += msg.detections[i].pose.pose.pose.position.z*z_scale
-				elif msg.detections[i].id == (42,):
+					z[5] += msg.detections[i].pose.pose.pose.position.z*self._z_scale
+				elif msg.detections[i].id == (47,):
 					h_sub[6:9, 0:1] += h_cam[6:9, 0:1]
 					R_sub[6:9, 6:9] += R_cam[6:9, 6:9]
 					H_jac_at_x_sub[6:9, 0:6] += H_cam_at_x[6:9, 0:6]
 					z[6] += msg.detections[i].pose.pose.pose.position.x
 					z[7] += msg.detections[i].pose.pose.pose.position.y
-					z[8] += msg.detections[i].pose.pose.pose.position.z*z_scale
-				elif msg.detections[i].id == (43,):
+					z[8] += msg.detections[i].pose.pose.pose.position.z*self._z_scale
+				elif msg.detections[i].id == (48,):
 					h_sub[9:12, 0:1] += h_cam[9:12, 0:1]
 					R_sub[9:12, 9:12] += R_cam[9:12, 9:12]
 					H_jac_at_x_sub[9:12, 0:6] += H_cam_at_x[9:12, 0:6]
 					z[9] += msg.detections[i].pose.pose.pose.position.x
 					z[10] += msg.detections[i].pose.pose.pose.position.y
-					z[11] += msg.detections[i].pose.pose.pose.position.z*z_scale
-				elif msg.detections[i].id == (44,):
+					z[11] += msg.detections[i].pose.pose.pose.position.z*self._z_scale
+				elif msg.detections[i].id == (49,):
 					h_sub[12:15, 0:1] += h_cam[12:15, 0:1]
 					R_sub[12:15, 12:15] += R_cam[12:15, 12:15]
 					H_jac_at_x_sub[12:15, 0:6] += H_cam_at_x[12:15, 0:6]
 					z[12] += msg.detections[i].pose.pose.pose.position.x
 					z[13] += msg.detections[i].pose.pose.pose.position.y
-					z[14] += msg.detections[i].pose.pose.pose.position.z*z_scale
+					z[14] += msg.detections[i].pose.pose.pose.position.z*self._z_scale
 				else: 
 					pass
 				i += 1	
@@ -327,6 +342,7 @@ class camera:
 				# passing the matrices to "ekf", a class instance of EkfLocalization
 				ekf.ekf_get_measurement(z, h_sub, H_start, R_start, time_stamp, self._cam_id)	
 				# ekf.update is only called when a measurement 
+				ekf.set_xhat345_to_zero()
 				ekf.update(z, h_sub, H_start, R_start)
 				"""
 				z       : measurement-vector according to the amount of seen tags (3-dimensions x, y, z per seen tag)
@@ -334,8 +350,11 @@ class camera:
 				H_start : scaled Jacobian at the position x_hat (also according to amount of seen tags)
 				R_start : Covariance matrix scaled according to seen tags
 				"""
+				#print('ekf: get x5 = ' + str(ekf.get_x_hat()[5]))
 		# publishing Position, Orientation and Covariance as output of the Extended-Kalman-Filter
+		#print('ekfpublish: get x5 = ' + str(ekf.get_x_hat()[5]))
 		ekf.ekf_publish(time_stamp, ekf.get_x_hat(), ekf.get_P_mat())
+		#print('ekfdebugger: get x5 = ' + str(ekf.get_x_hat()[5]))
 		# publishing the tf-transformation of the camera1-frame
 		transforms_cam = []
 		ekf_tf_cam = TransformStamped()
@@ -381,3 +400,4 @@ class camera:
 
 		transforms_cam.append(ekf_tf_cam)
 		pub_tf_cam.sendTransform(transforms_cam)  # rename into name of the publisher
+		

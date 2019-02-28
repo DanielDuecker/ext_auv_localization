@@ -7,6 +7,7 @@ from geometry_msgs.msg import PoseWithCovarianceStamped
 from geometry_msgs.msg import TransformStamped
 from numpy.linalg import inv
 from pyquaternion import Quaternion
+from copy import copy
 # testing: publishing z_tilde
 import rospy
 from ekf.msg import callback_data
@@ -35,6 +36,12 @@ class EkfLocalization:
 	def get_x_hat(self):
 		return self._x_hat
 
+	def set_xhat345_to_zero(self):
+		self._x_hat[3] = 0
+		self._x_hat[4] = 0
+		self._x_hat[5] = 0
+	
+
 	def get_P_mat(self):
 		return self._P_mat
 
@@ -42,22 +49,35 @@ class EkfLocalization:
 		return self._time_stamp
 
 	def predict(self):
+		#print(' ')
+		#print('yaw_angle cube before predict:')
+		#print(self._x_hat[5])
 		x_hat_temp = self._x_hat.reshape(6, 1)
 		self._x_hat = self._F.dot(x_hat_temp)
 		self._P_mat = self._F.dot(self._P_mat.dot(self._F)) + self._Q_mat
+		#print('yaw_angle cube after predict:')
+		#print(self._x_hat[5])
 
 	def update(self, z, h_at_x, H_cam_at_x, R_mat):
+		#print(' ')
+		#print('yaw_angle cube before update:')
+		#print(self._x_hat[5])
 		L = inv(H_cam_at_x.dot(self._P_mat.dot(H_cam_at_x.T)) + R_mat)
 		K = self._P_mat.dot((H_cam_at_x.T).dot(L))
 		z_tilde = z - h_at_x
+		#print('z_tilde = ' + str(z_tilde)) 
 		# testing: publishing z_tilde
 		z_tilde_msg = callback_data()
 		z_tilde_msg.h = z_tilde
 		self._pub.publish(z_tilde_msg)
 		# testing end
 		# limit size of angles by +/- pi
-		self._x_hat = self._x_hat + K.dot(z_tilde)
+		delta_x = K.dot(z_tilde)
+		self._x_hat = self._x_hat + delta_x
 		self._P_mat = (np.eye(6) - K.dot(H_cam_at_x)).dot(self._P_mat)
+		#print('yaw_angle cube after update:')
+		#print(self._x_hat[5])
+		"""
 		if self._x_hat[3] > 0.0:
 			self._x_hat[3] = np.mod(self._x_hat[3], np.pi)
 		elif self._x_hat[3] < 0.0:
@@ -72,8 +92,7 @@ class EkfLocalization:
 			self._x_hat[5] = np.mod(self._x_hat[5], np.pi)
 		elif self._x_hat[5] < 0.0:
 			self._x_hat[5] = -np.mod(-self._x_hat[5], np.pi)
-		
-
+		"""
 		"""
 		L = auxiliary variable
 		K = Kalman gain
@@ -97,8 +116,15 @@ class EkfLocalization:
 
 	def ekf_publish(self, time_stamp, x_hat, P):
 		# converting the object's orientation from euler-angles to a quaternion, since tf and nav_msgs both describe orientation through quaternions
-		quat = quaternion_from_euler(x_hat[3], x_hat[4], x_hat[5])
-
+		#a = self.get_x_hat()[5]
+		#print('before a = ' + str(a))
+		#print('ekfdebugger: before self x5 = ' + str(self.get_x_hat()[5]))
+		#print('ekfdebugger: before  x5 = ' + str(x_hat[5]))
+		x_hat_internal = copy(x_hat)
+		quat = quaternion_from_euler(x_hat_internal[3], x_hat_internal[4], x_hat_internal[5])
+		#print('ekfdebugger: get self x5 = ' + str(self.get_x_hat()[5]))
+		#print('ekfdebugger: get x5 = ' + str(x_hat[5]))
+		#print('a ' + str(a))
 		# publishing Position, Orientation and Covariance as output of the Extended-Kalman-Filter
 		ekfOutput_msg = PoseWithCovarianceStamped()
 		ekfOutput_msg.header.stamp = time_stamp
