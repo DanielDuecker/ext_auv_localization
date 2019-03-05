@@ -34,7 +34,11 @@ class camera:
 		self._time_offset_secs = 0
 		self._time_offset_nsecs = 0
 		# class variables
-		self._H_jacobi_sym = self.compute_jacobian()		# symbolic Jacobian of h (variables have not been subsidied)
+		print("Please give me some time to preprocess the H(x) jacobian of Cam#" +str(cam_id))
+		self._H_jacobi_sym = self.compute_jacobian()		# symbolic Jacobian of h
+		self._H_jac_func = self.H_jac_to_numpy()  # converts symbolic jacobian to numpy-function handle
+		print("Done!")
+		
 	def set_time_offset(self, secs, nsecs):
 		if not self._is_time_offset_init:
 			self._time_offset_secs = secs
@@ -57,6 +61,14 @@ class camera:
 	
 	def get_H_Jac_sym(self):
 		return	self._H_jacobi_sym
+	
+	def H_jac_to_numpy(self):  
+	# lambify sympy matrix -> speed up x100
+	
+		H_jac = self.get_H_Jac_sym()	
+    		H_jac_func_handle = lambdify([x, y, z, p, t, s], H_jac, "numpy")
+    		
+    		return H_jac_func_handle
 
 	def RotationMatrixToEulerAngles(self, R):
 		sy = np.sqrt(R[0, 0] * R[0, 0] + R[1, 0] * R[1, 0])
@@ -70,11 +82,22 @@ class camera:
 			y = np.arctan2(-R[2, 0], sy)
 			z = 0
 		return np.array([x, y, z])
+		
+	def get_R_mat(self):
+		return self._R_mat
+		
+
+	def H_jac_at_x(self, x_w_hat):  
+	# evaluate the jacobian H from a camera at estimate x_w_hat
+	        
+	        H_jac_at_x = self._H_jac_func(x_w_hat[0,0],x_w_hat[1,0],x_w_hat[2,0],x_w_hat[3,0],x_w_hat[4,0],x_w_hat[5,0])
+  		    		
+    		return H_jac_at_x
 
 
 
 	def h_cam(self, x_cube_w):
-	        #t_h = time.time() # h time_counter
+	        
 		# defining parameters
 		x_cube_w = x_cube_w.reshape(1, 6)
     		x_cube_w = x_cube_w[0]
@@ -83,8 +106,7 @@ class camera:
    		z_w = x_cube_w[2]
     		p = x_cube_w[3]*0  # phi
     		t = x_cube_w[4]*0  # theta
-    		#s = x_cube_w[5]*0 +math.pi/2 # psi
-    		s = x_cube_w[5]
+    		s = x_cube_w[5]    # psi
 
 		# vectors from cube-center to tag-center (cube-system)
 		"""
@@ -152,8 +174,7 @@ class camera:
 					[R_world2cam, camera_position_cam],
 					[np.zeros(3), 1]
 					])
-		#print "T_world2cam"
-		#print T_world2cam
+
 		# Axis-transformation from world-system (NED) to camera-system (EDN)
 		#R_umrechnung = np.array([0, 1, 0, 0, 0, 0, 1, 0, 1, 0, 0, 0, 0, 0, 0, 1]).reshape(4, 4)
 
@@ -235,57 +256,14 @@ class camera:
 		# returning h_at_x
 		return h # 15x1 vector showing the position of all tags depending on the cube's position
 		
-		
-
-
-	def compute_jacobian(self):
-	        t_comp_jac = time.time()
-		x, y, z, p, t, s = sympy.symbols('x y z p t s')
-		a = self._a
-		b = self._b
-		g = self._g
-		t_x = self._t_x
-		t_y = self._t_y
-		t_z = self._t_z
-		
-		h = sympy.Matrix([[-t_x*sympy.sin(g)*sympy.cos(b) + t_y*(-sympy.sin(a)*sympy.sin(b)*sympy.sin(g) + sympy.cos(a)*sympy.cos(g)) + t_z*(sympy.sin(a)*sympy.cos(g) + sympy.sin(b)*sympy.sin(g)*sympy.cos(a)) - (x + 0.082*sympy.sin(s)*sympy.cos(t))*sympy.sin(g)*sympy.cos(b) + (sympy.sin(a)*sympy.cos(g) + sympy.sin(b)*sympy.sin(g)*sympy.cos(a))*(z - 0.082*sympy.sin(p)*sympy.cos(s) - 0.082*sympy.sin(s)*sympy.sin(t)*sympy.cos(p)) + (-sympy.sin(a)*sympy.sin(b)*sympy.sin(g) + sympy.cos(a)*sympy.cos(g))*(y + 0.082*sympy.sin(p)*sympy.sin(s)*sympy.sin(t) - 0.082*sympy.cos(p)*sympy.cos(s))], [t_x*sympy.sin(b) - t_y*sympy.sin(a)*sympy.cos(b) + t_z*sympy.cos(a)*sympy.cos(b) + (x + 0.082*sympy.sin(s)*sympy.cos(t))*sympy.sin(b) - (y + 0.082*sympy.sin(p)*sympy.sin(s)*sympy.sin(t) - 0.082*sympy.cos(p)*sympy.cos(s))*sympy.sin(a)*sympy.cos(b) + (z - 0.082*sympy.sin(p)*sympy.cos(s) - 0.082*sympy.sin(s)*sympy.sin(t)*sympy.cos(p))*sympy.cos(a)*sympy.cos(b)], [t_x*sympy.cos(b)*sympy.cos(g) + t_y*(sympy.sin(a)*sympy.sin(b)*sympy.cos(g) + sympy.sin(g)*sympy.cos(a)) + t_z*(sympy.sin(a)*sympy.sin(g) - sympy.sin(b)*sympy.cos(a)*sympy.cos(g)) + (x + 0.082*sympy.sin(s)*sympy.cos(t))*sympy.cos(b)*sympy.cos(g) + (sympy.sin(a)*sympy.sin(g) - sympy.sin(b)*sympy.cos(a)*sympy.cos(g))*(z - 0.082*sympy.sin(p)*sympy.cos(s) - 0.082*sympy.sin(s)*sympy.sin(t)*sympy.cos(p)) + (sympy.sin(a)*sympy.sin(b)*sympy.cos(g) + sympy.sin(g)*sympy.cos(a))*(y + 0.082*sympy.sin(p)*sympy.sin(s)*sympy.sin(t) - 0.082*sympy.cos(p)*sympy.cos(s))], [-t_x*sympy.sin(g)*sympy.cos(b) + t_y*(-sympy.sin(a)*sympy.sin(b)*sympy.sin(g) + sympy.cos(a)*sympy.cos(g)) + t_z*(sympy.sin(a)*sympy.cos(g) + sympy.sin(b)*sympy.sin(g)*sympy.cos(a)) - (x - 0.082*sympy.sin(s)*sympy.cos(t))*sympy.sin(g)*sympy.cos(b) + (sympy.sin(a)*sympy.cos(g) + sympy.sin(b)*sympy.sin(g)*sympy.cos(a))*(z + 0.082*sympy.sin(p)*sympy.cos(s) + 0.082*sympy.sin(s)*sympy.sin(t)*sympy.cos(p)) + (-sympy.sin(a)*sympy.sin(b)*sympy.sin(g) + sympy.cos(a)*sympy.cos(g))*(y - 0.082*sympy.sin(p)*sympy.sin(s)*sympy.sin(t) + 0.082*sympy.cos(p)*sympy.cos(s))], [t_x*sympy.sin(b) - t_y*sympy.sin(a)*sympy.cos(b) + t_z*sympy.cos(a)*sympy.cos(b) + (x - 0.082*sympy.sin(s)*sympy.cos(t))*sympy.sin(b) - (y - 0.082*sympy.sin(p)*sympy.sin(s)*sympy.sin(t) + 0.082*sympy.cos(p)*sympy.cos(s))*sympy.sin(a)*sympy.cos(b) + (z + 0.082*sympy.sin(p)*sympy.cos(s) + 0.082*sympy.sin(s)*sympy.sin(t)*sympy.cos(p))*sympy.cos(a)*sympy.cos(b)], [t_x*sympy.cos(b)*sympy.cos(g) + t_y*(sympy.sin(a)*sympy.sin(b)*sympy.cos(g) + sympy.sin(g)*sympy.cos(a)) + t_z*(sympy.sin(a)*sympy.sin(g) - sympy.sin(b)*sympy.cos(a)*sympy.cos(g)) + (x - 0.082*sympy.sin(s)*sympy.cos(t))*sympy.cos(b)*sympy.cos(g) + (sympy.sin(a)*sympy.sin(g) - sympy.sin(b)*sympy.cos(a)*sympy.cos(g))*(z + 0.082*sympy.sin(p)*sympy.cos(s) + 0.082*sympy.sin(s)*sympy.sin(t)*sympy.cos(p)) + (sympy.sin(a)*sympy.sin(b)*sympy.cos(g) + sympy.sin(g)*sympy.cos(a))*(y - 0.082*sympy.sin(p)*sympy.sin(s)*sympy.sin(t) + 0.082*sympy.cos(p)*sympy.cos(s))], [-t_x*sympy.sin(g)*sympy.cos(b) + t_y*(-sympy.sin(a)*sympy.sin(b)*sympy.sin(g) + sympy.cos(a)*sympy.cos(g)) + t_z*(sympy.sin(a)*sympy.cos(g) + sympy.sin(b)*sympy.sin(g)*sympy.cos(a)) - (x + 0.082*sympy.sin(t))*sympy.sin(g)*sympy.cos(b) + (y - 0.082*sympy.sin(p)*sympy.cos(t))*(-sympy.sin(a)*sympy.sin(b)*sympy.sin(g) + sympy.cos(a)*sympy.cos(g)) + (z + 0.082*sympy.cos(p)*sympy.cos(t))*(sympy.sin(a)*sympy.cos(g) + sympy.sin(b)*sympy.sin(g)*sympy.cos(a))], [t_x*sympy.sin(b) - t_y*sympy.sin(a)*sympy.cos(b) + t_z*sympy.cos(a)*sympy.cos(b) + (x + 0.082*sympy.sin(t))*sympy.sin(b) - (y - 0.082*sympy.sin(p)*sympy.cos(t))*sympy.sin(a)*sympy.cos(b) + (z + 0.082*sympy.cos(p)*sympy.cos(t))*sympy.cos(a)*sympy.cos(b)], [t_x*sympy.cos(b)*sympy.cos(g) + t_y*(sympy.sin(a)*sympy.sin(b)*sympy.cos(g) + sympy.sin(g)*sympy.cos(a)) + t_z*(sympy.sin(a)*sympy.sin(g) - sympy.sin(b)*sympy.cos(a)*sympy.cos(g)) + (x + 0.082*sympy.sin(t))*sympy.cos(b)*sympy.cos(g) + (y - 0.082*sympy.sin(p)*sympy.cos(t))*(sympy.sin(a)*sympy.sin(b)*sympy.cos(g) + sympy.sin(g)*sympy.cos(a)) + (z + 0.082*sympy.cos(p)*sympy.cos(t))*(sympy.sin(a)*sympy.sin(g) - sympy.sin(b)*sympy.cos(a)*sympy.cos(g))], [-t_x*sympy.sin(g)*sympy.cos(b) + t_y*(-sympy.sin(a)*sympy.sin(b)*sympy.sin(g) + sympy.cos(a)*sympy.cos(g)) + t_z*(sympy.sin(a)*sympy.cos(g) + sympy.sin(b)*sympy.sin(g)*sympy.cos(a)) - (x + 0.173*sympy.cos(s)*sympy.cos(t))*sympy.sin(g)*sympy.cos(b) + (sympy.sin(a)*sympy.cos(g) + sympy.sin(b)*sympy.sin(g)*sympy.cos(a))*(z + 0.173*sympy.sin(p)*sympy.sin(s) - 0.173*sympy.sin(t)*sympy.cos(p)*sympy.cos(s)) + (-sympy.sin(a)*sympy.sin(b)*sympy.sin(g) + sympy.cos(a)*sympy.cos(g))*(y + 0.173*sympy.sin(p)*sympy.sin(t)*sympy.cos(s) + 0.173*sympy.sin(s)*sympy.cos(p))], [t_x*sympy.sin(b) - t_y*sympy.sin(a)*sympy.cos(b) + t_z*sympy.cos(a)*sympy.cos(b) + (x + 0.173*sympy.cos(s)*sympy.cos(t))*sympy.sin(b) - (y + 0.173*sympy.sin(p)*sympy.sin(t)*sympy.cos(s) + 0.173*sympy.sin(s)*sympy.cos(p))*sympy.sin(a)*sympy.cos(b) + (z + 0.173*sympy.sin(p)*sympy.sin(s) - 0.173*sympy.sin(t)*sympy.cos(p)*sympy.cos(s))*sympy.cos(a)*sympy.cos(b)], [t_x*sympy.cos(b)*sympy.cos(g) + t_y*(sympy.sin(a)*sympy.sin(b)*sympy.cos(g) + sympy.sin(g)*sympy.cos(a)) + t_z*(sympy.sin(a)*sympy.sin(g) - sympy.sin(b)*sympy.cos(a)*sympy.cos(g)) + (x + 0.173*sympy.cos(s)*sympy.cos(t))*sympy.cos(b)*sympy.cos(g) + (sympy.sin(a)*sympy.sin(g) - sympy.sin(b)*sympy.cos(a)*sympy.cos(g))*(z + 0.173*sympy.sin(p)*sympy.sin(s) - 0.173*sympy.sin(t)*sympy.cos(p)*sympy.cos(s)) + (sympy.sin(a)*sympy.sin(b)*sympy.cos(g) + sympy.sin(g)*sympy.cos(a))*(y + 0.173*sympy.sin(p)*sympy.sin(t)*sympy.cos(s) + 0.173*sympy.sin(s)*sympy.cos(p))], [-t_x*sympy.sin(g)*sympy.cos(b) + t_y*(-sympy.sin(a)*sympy.sin(b)*sympy.sin(g) + sympy.cos(a)*sympy.cos(g)) + t_z*(sympy.sin(a)*sympy.cos(g) + sympy.sin(b)*sympy.sin(g)*sympy.cos(a)) - (x - 0.24*sympy.cos(s)*sympy.cos(t))*sympy.sin(g)*sympy.cos(b) + (sympy.sin(a)*sympy.cos(g) + sympy.sin(b)*sympy.sin(g)*sympy.cos(a))*(z - 0.24*sympy.sin(p)*sympy.sin(s) + 0.24*sympy.sin(t)*sympy.cos(p)*sympy.cos(s)) + (-sympy.sin(a)*sympy.sin(b)*sympy.sin(g) + sympy.cos(a)*sympy.cos(g))*(y - 0.24*sympy.sin(p)*sympy.sin(t)*sympy.cos(s) - 0.24*sympy.sin(s)*sympy.cos(p))], [t_x*sympy.sin(b) - t_y*sympy.sin(a)*sympy.cos(b) + t_z*sympy.cos(a)*sympy.cos(b) + (x - 0.24*sympy.cos(s)*sympy.cos(t))*sympy.sin(b) - (y - 0.24*sympy.sin(p)*sympy.sin(t)*sympy.cos(s) - 0.24*sympy.sin(s)*sympy.cos(p))*sympy.sin(a)*sympy.cos(b) + (z - 0.24*sympy.sin(p)*sympy.sin(s) + 0.24*sympy.sin(t)*sympy.cos(p)*sympy.cos(s))*sympy.cos(a)*sympy.cos(b)], [t_x*sympy.cos(b)*sympy.cos(g) + t_y*(sympy.sin(a)*sympy.sin(b)*sympy.cos(g) + sympy.sin(g)*sympy.cos(a)) + t_z*(sympy.sin(a)*sympy.sin(g) - sympy.sin(b)*sympy.cos(a)*sympy.cos(g)) + (x - 0.24*sympy.cos(s)*sympy.cos(t))*sympy.cos(b)*sympy.cos(g) + (sympy.sin(a)*sympy.sin(g) - sympy.sin(b)*sympy.cos(a)*sympy.cos(g))*(z - 0.24*sympy.sin(p)*sympy.sin(s) + 0.24*sympy.sin(t)*sympy.cos(p)*sympy.cos(s)) + (sympy.sin(a)*sympy.sin(b)*sympy.cos(g) + sympy.sin(g)*sympy.cos(a))*(y - 0.24*sympy.sin(p)*sympy.sin(t)*sympy.cos(s) - 0.24*sympy.sin(s)*sympy.cos(p))]])
-
-
-		h_c = sympy.Matrix(h)
-		variables = sympy.Matrix([x, y, z, p, t, s])
-                elapse_comp_jac = time.time() - t_comp_jac
-                print("time to compute jacobian at startup = " + str(elapse_comp_jac))
-                
-                # H(x) Jacobian of h(x)
-		return h_c.jacobian(variables)  
-
-
-	def get_R_mat(self):
-		return self._R_mat
+	
+	
+	
+	
+        
 
 	
-	def H_jac_at_x(self, x_w_hat):  # evaluate the jacobian H from a camera at estimate x_w_hat
-	        
-	        
-		H_jac = self.get_H_Jac_sym()
-		
-		# in: current position estimate x_w_hat
-    		# out: jacobian evaluated at x_w_hat
-    		x_w_hat = x_w_hat.reshape(1, 6)
-    		x_w_hat = x_w_hat[0]
-    		x, y, z, p, t, s = sympy.symbols('x y z p t s')
-    		
-    		x_w_hat_help = sympy.Matrix([x_w_hat[0], x_w_hat[1], x_w_hat[2], x_w_hat[3], x_w_hat[4], x_w_hat[5]])  # converting the incoming numpy array into a sympy array
-    		
-    		H_jac_at_x_sympy = H_jac.subs(zip([x, y, z, p, t, s], [x_w_hat_help[0], x_w_hat_help[1], x_w_hat_help[2], x_w_hat_help[3], x_w_hat_help[4], x_w_hat_help[5]]))
-    		
-    		t_eval_jac = time.time()
-    		H_jac_at_x = np.array(H_jac_at_x_sympy).astype(np.float64)
-    		
-    		elapse_eval_jac = time.time() - t_eval_jac
-    		print("time to eval jac at x = " + str(elapse_eval_jac))
-    		
-    		return H_jac_at_x
+
     		
     	def callcam(self, ekf, pub_tf_cam, no_tag, msg):
 	    	#print('ekfcallcam: get x5 = ' + str(ekf.get_x_hat()[5]))
@@ -455,4 +433,45 @@ class camera:
 
 		transforms_cam.append(ekf_tf_cam)
 		pub_tf_cam.sendTransform(transforms_cam)  # rename into name of the publisher
+			
+	
+	
+	
+	
+	
+	
+	
+	
+	
+	
+	
+	
+	
+	
+	
+	
+	
+	
 		
+
+
+	def compute_jacobian(self):
+		x, y, z, p, t, s = sympy.symbols('x y z p t s')
+		a = self._a
+		b = self._b
+		g = self._g
+		t_x = self._t_x
+		t_y = self._t_y
+		t_z = self._t_z
+		
+		h = sympy.Matrix([[-t_x*sympy.sin(g)*sympy.cos(b) + t_y*(-sympy.sin(a)*sympy.sin(b)*sympy.sin(g) + sympy.cos(a)*sympy.cos(g)) + t_z*(sympy.sin(a)*sympy.cos(g) + sympy.sin(b)*sympy.sin(g)*sympy.cos(a)) - (x + 0.082*sympy.sin(s)*sympy.cos(t))*sympy.sin(g)*sympy.cos(b) + (sympy.sin(a)*sympy.cos(g) + sympy.sin(b)*sympy.sin(g)*sympy.cos(a))*(z - 0.082*sympy.sin(p)*sympy.cos(s) - 0.082*sympy.sin(s)*sympy.sin(t)*sympy.cos(p)) + (-sympy.sin(a)*sympy.sin(b)*sympy.sin(g) + sympy.cos(a)*sympy.cos(g))*(y + 0.082*sympy.sin(p)*sympy.sin(s)*sympy.sin(t) - 0.082*sympy.cos(p)*sympy.cos(s))], [t_x*sympy.sin(b) - t_y*sympy.sin(a)*sympy.cos(b) + t_z*sympy.cos(a)*sympy.cos(b) + (x + 0.082*sympy.sin(s)*sympy.cos(t))*sympy.sin(b) - (y + 0.082*sympy.sin(p)*sympy.sin(s)*sympy.sin(t) - 0.082*sympy.cos(p)*sympy.cos(s))*sympy.sin(a)*sympy.cos(b) + (z - 0.082*sympy.sin(p)*sympy.cos(s) - 0.082*sympy.sin(s)*sympy.sin(t)*sympy.cos(p))*sympy.cos(a)*sympy.cos(b)], [t_x*sympy.cos(b)*sympy.cos(g) + t_y*(sympy.sin(a)*sympy.sin(b)*sympy.cos(g) + sympy.sin(g)*sympy.cos(a)) + t_z*(sympy.sin(a)*sympy.sin(g) - sympy.sin(b)*sympy.cos(a)*sympy.cos(g)) + (x + 0.082*sympy.sin(s)*sympy.cos(t))*sympy.cos(b)*sympy.cos(g) + (sympy.sin(a)*sympy.sin(g) - sympy.sin(b)*sympy.cos(a)*sympy.cos(g))*(z - 0.082*sympy.sin(p)*sympy.cos(s) - 0.082*sympy.sin(s)*sympy.sin(t)*sympy.cos(p)) + (sympy.sin(a)*sympy.sin(b)*sympy.cos(g) + sympy.sin(g)*sympy.cos(a))*(y + 0.082*sympy.sin(p)*sympy.sin(s)*sympy.sin(t) - 0.082*sympy.cos(p)*sympy.cos(s))], [-t_x*sympy.sin(g)*sympy.cos(b) + t_y*(-sympy.sin(a)*sympy.sin(b)*sympy.sin(g) + sympy.cos(a)*sympy.cos(g)) + t_z*(sympy.sin(a)*sympy.cos(g) + sympy.sin(b)*sympy.sin(g)*sympy.cos(a)) - (x - 0.082*sympy.sin(s)*sympy.cos(t))*sympy.sin(g)*sympy.cos(b) + (sympy.sin(a)*sympy.cos(g) + sympy.sin(b)*sympy.sin(g)*sympy.cos(a))*(z + 0.082*sympy.sin(p)*sympy.cos(s) + 0.082*sympy.sin(s)*sympy.sin(t)*sympy.cos(p)) + (-sympy.sin(a)*sympy.sin(b)*sympy.sin(g) + sympy.cos(a)*sympy.cos(g))*(y - 0.082*sympy.sin(p)*sympy.sin(s)*sympy.sin(t) + 0.082*sympy.cos(p)*sympy.cos(s))], [t_x*sympy.sin(b) - t_y*sympy.sin(a)*sympy.cos(b) + t_z*sympy.cos(a)*sympy.cos(b) + (x - 0.082*sympy.sin(s)*sympy.cos(t))*sympy.sin(b) - (y - 0.082*sympy.sin(p)*sympy.sin(s)*sympy.sin(t) + 0.082*sympy.cos(p)*sympy.cos(s))*sympy.sin(a)*sympy.cos(b) + (z + 0.082*sympy.sin(p)*sympy.cos(s) + 0.082*sympy.sin(s)*sympy.sin(t)*sympy.cos(p))*sympy.cos(a)*sympy.cos(b)], [t_x*sympy.cos(b)*sympy.cos(g) + t_y*(sympy.sin(a)*sympy.sin(b)*sympy.cos(g) + sympy.sin(g)*sympy.cos(a)) + t_z*(sympy.sin(a)*sympy.sin(g) - sympy.sin(b)*sympy.cos(a)*sympy.cos(g)) + (x - 0.082*sympy.sin(s)*sympy.cos(t))*sympy.cos(b)*sympy.cos(g) + (sympy.sin(a)*sympy.sin(g) - sympy.sin(b)*sympy.cos(a)*sympy.cos(g))*(z + 0.082*sympy.sin(p)*sympy.cos(s) + 0.082*sympy.sin(s)*sympy.sin(t)*sympy.cos(p)) + (sympy.sin(a)*sympy.sin(b)*sympy.cos(g) + sympy.sin(g)*sympy.cos(a))*(y - 0.082*sympy.sin(p)*sympy.sin(s)*sympy.sin(t) + 0.082*sympy.cos(p)*sympy.cos(s))], [-t_x*sympy.sin(g)*sympy.cos(b) + t_y*(-sympy.sin(a)*sympy.sin(b)*sympy.sin(g) + sympy.cos(a)*sympy.cos(g)) + t_z*(sympy.sin(a)*sympy.cos(g) + sympy.sin(b)*sympy.sin(g)*sympy.cos(a)) - (x + 0.082*sympy.sin(t))*sympy.sin(g)*sympy.cos(b) + (y - 0.082*sympy.sin(p)*sympy.cos(t))*(-sympy.sin(a)*sympy.sin(b)*sympy.sin(g) + sympy.cos(a)*sympy.cos(g)) + (z + 0.082*sympy.cos(p)*sympy.cos(t))*(sympy.sin(a)*sympy.cos(g) + sympy.sin(b)*sympy.sin(g)*sympy.cos(a))], [t_x*sympy.sin(b) - t_y*sympy.sin(a)*sympy.cos(b) + t_z*sympy.cos(a)*sympy.cos(b) + (x + 0.082*sympy.sin(t))*sympy.sin(b) - (y - 0.082*sympy.sin(p)*sympy.cos(t))*sympy.sin(a)*sympy.cos(b) + (z + 0.082*sympy.cos(p)*sympy.cos(t))*sympy.cos(a)*sympy.cos(b)], [t_x*sympy.cos(b)*sympy.cos(g) + t_y*(sympy.sin(a)*sympy.sin(b)*sympy.cos(g) + sympy.sin(g)*sympy.cos(a)) + t_z*(sympy.sin(a)*sympy.sin(g) - sympy.sin(b)*sympy.cos(a)*sympy.cos(g)) + (x + 0.082*sympy.sin(t))*sympy.cos(b)*sympy.cos(g) + (y - 0.082*sympy.sin(p)*sympy.cos(t))*(sympy.sin(a)*sympy.sin(b)*sympy.cos(g) + sympy.sin(g)*sympy.cos(a)) + (z + 0.082*sympy.cos(p)*sympy.cos(t))*(sympy.sin(a)*sympy.sin(g) - sympy.sin(b)*sympy.cos(a)*sympy.cos(g))], [-t_x*sympy.sin(g)*sympy.cos(b) + t_y*(-sympy.sin(a)*sympy.sin(b)*sympy.sin(g) + sympy.cos(a)*sympy.cos(g)) + t_z*(sympy.sin(a)*sympy.cos(g) + sympy.sin(b)*sympy.sin(g)*sympy.cos(a)) - (x + 0.173*sympy.cos(s)*sympy.cos(t))*sympy.sin(g)*sympy.cos(b) + (sympy.sin(a)*sympy.cos(g) + sympy.sin(b)*sympy.sin(g)*sympy.cos(a))*(z + 0.173*sympy.sin(p)*sympy.sin(s) - 0.173*sympy.sin(t)*sympy.cos(p)*sympy.cos(s)) + (-sympy.sin(a)*sympy.sin(b)*sympy.sin(g) + sympy.cos(a)*sympy.cos(g))*(y + 0.173*sympy.sin(p)*sympy.sin(t)*sympy.cos(s) + 0.173*sympy.sin(s)*sympy.cos(p))], [t_x*sympy.sin(b) - t_y*sympy.sin(a)*sympy.cos(b) + t_z*sympy.cos(a)*sympy.cos(b) + (x + 0.173*sympy.cos(s)*sympy.cos(t))*sympy.sin(b) - (y + 0.173*sympy.sin(p)*sympy.sin(t)*sympy.cos(s) + 0.173*sympy.sin(s)*sympy.cos(p))*sympy.sin(a)*sympy.cos(b) + (z + 0.173*sympy.sin(p)*sympy.sin(s) - 0.173*sympy.sin(t)*sympy.cos(p)*sympy.cos(s))*sympy.cos(a)*sympy.cos(b)], [t_x*sympy.cos(b)*sympy.cos(g) + t_y*(sympy.sin(a)*sympy.sin(b)*sympy.cos(g) + sympy.sin(g)*sympy.cos(a)) + t_z*(sympy.sin(a)*sympy.sin(g) - sympy.sin(b)*sympy.cos(a)*sympy.cos(g)) + (x + 0.173*sympy.cos(s)*sympy.cos(t))*sympy.cos(b)*sympy.cos(g) + (sympy.sin(a)*sympy.sin(g) - sympy.sin(b)*sympy.cos(a)*sympy.cos(g))*(z + 0.173*sympy.sin(p)*sympy.sin(s) - 0.173*sympy.sin(t)*sympy.cos(p)*sympy.cos(s)) + (sympy.sin(a)*sympy.sin(b)*sympy.cos(g) + sympy.sin(g)*sympy.cos(a))*(y + 0.173*sympy.sin(p)*sympy.sin(t)*sympy.cos(s) + 0.173*sympy.sin(s)*sympy.cos(p))], [-t_x*sympy.sin(g)*sympy.cos(b) + t_y*(-sympy.sin(a)*sympy.sin(b)*sympy.sin(g) + sympy.cos(a)*sympy.cos(g)) + t_z*(sympy.sin(a)*sympy.cos(g) + sympy.sin(b)*sympy.sin(g)*sympy.cos(a)) - (x - 0.24*sympy.cos(s)*sympy.cos(t))*sympy.sin(g)*sympy.cos(b) + (sympy.sin(a)*sympy.cos(g) + sympy.sin(b)*sympy.sin(g)*sympy.cos(a))*(z - 0.24*sympy.sin(p)*sympy.sin(s) + 0.24*sympy.sin(t)*sympy.cos(p)*sympy.cos(s)) + (-sympy.sin(a)*sympy.sin(b)*sympy.sin(g) + sympy.cos(a)*sympy.cos(g))*(y - 0.24*sympy.sin(p)*sympy.sin(t)*sympy.cos(s) - 0.24*sympy.sin(s)*sympy.cos(p))], [t_x*sympy.sin(b) - t_y*sympy.sin(a)*sympy.cos(b) + t_z*sympy.cos(a)*sympy.cos(b) + (x - 0.24*sympy.cos(s)*sympy.cos(t))*sympy.sin(b) - (y - 0.24*sympy.sin(p)*sympy.sin(t)*sympy.cos(s) - 0.24*sympy.sin(s)*sympy.cos(p))*sympy.sin(a)*sympy.cos(b) + (z - 0.24*sympy.sin(p)*sympy.sin(s) + 0.24*sympy.sin(t)*sympy.cos(p)*sympy.cos(s))*sympy.cos(a)*sympy.cos(b)], [t_x*sympy.cos(b)*sympy.cos(g) + t_y*(sympy.sin(a)*sympy.sin(b)*sympy.cos(g) + sympy.sin(g)*sympy.cos(a)) + t_z*(sympy.sin(a)*sympy.sin(g) - sympy.sin(b)*sympy.cos(a)*sympy.cos(g)) + (x - 0.24*sympy.cos(s)*sympy.cos(t))*sympy.cos(b)*sympy.cos(g) + (sympy.sin(a)*sympy.sin(g) - sympy.sin(b)*sympy.cos(a)*sympy.cos(g))*(z - 0.24*sympy.sin(p)*sympy.sin(s) + 0.24*sympy.sin(t)*sympy.cos(p)*sympy.cos(s)) + (sympy.sin(a)*sympy.sin(b)*sympy.cos(g) + sympy.sin(g)*sympy.cos(a))*(y - 0.24*sympy.sin(p)*sympy.sin(t)*sympy.cos(s) - 0.24*sympy.sin(s)*sympy.cos(p))]])
+
+
+		h_c = sympy.Matrix(h)
+		variables = sympy.Matrix([x, y, z, p, t, s])
+
+                # H(x) Jacobian of h(x)
+		return h_c.jacobian(variables)  
+
+
+	

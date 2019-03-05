@@ -44,7 +44,7 @@ def callback1(
     testcam1.callcam(ekf, pub_tf_cam1, no_tag1, msg)
     # do stuff
     elapsed1 = time.time() - t1
-    print('time elapsed callback1 = ' + str(elapsed1))
+    #print('time elapsed callback1 = ' + str(elapsed1))
 
 # print ('cam1' + str(testcam1.compensate_cam_time(msg.header.stamp.secs,msg.header.stamp.nsecs)))
 
@@ -55,7 +55,7 @@ def callback2(msg):  # sole purpose of this function is to recieve the position 
     t2 = time.time()
     testcam2.callcam(ekf, pub_tf_cam2, no_tag2, msg)
     elapsed2 = time.time() - t2
-    print('time elapsed callback2 = ' + str(elapsed2))
+    #print('time elapsed callback2 = ' + str(elapsed2))
 
 # print ('cam2' + str(testcam2.compensate_cam_time(msg.header.stamp.secs,msg.header.stamp.nsecs)))
 
@@ -72,7 +72,7 @@ def callback4(msg):
     testcam4.callcam(ekf, pub_tf_cam4, no_tag4, msg)
     # do stuff
     elapsed4 = time.time() - t4
-    print('time elapsed callback4 = ' + str(elapsed4))
+    #print('time elapsed callback4 = ' + str(elapsed4))
 
 def callback5(msg):
     global testcam5, ekf, pub_tf_cam5, no_tag5
@@ -182,12 +182,12 @@ def main():
     rospy.init_node('ext_auv_localization')
     # rospy.Subscriber("/usb_cam1/camera_info", CameraInfo, callback1_timer, queue_size=1)
     # rospy.Subscriber("/usb_cam2/camera_info", CameraInfo, callback2_timer, queue_size=1)
-    #rospy.Subscriber("/tag_detections1", AprilTagDetectionArray, callback1, queue_size=1)
+    rospy.Subscriber("/tag_detections1", AprilTagDetectionArray, callback1, queue_size=1)
     rospy.Subscriber("/tag_detections2", AprilTagDetectionArray, callback2, queue_size=1)
     # rospy.Subscriber("/tag_detections3", AprilTagDetectionArray, callback3, queue_size=1)
-    #rospy.Subscriber("/tag_detections4", AprilTagDetectionArray, callback4, queue_size=1)
+    rospy.Subscriber("/tag_detections4", AprilTagDetectionArray, callback4, queue_size=1)
     # rospy.Subscriber("/tag_detections5", AprilTagDetectionArray, callback5, queue_size=1)
-    #rospy.Subscriber("/tag_detections6", AprilTagDetectionArray, callback6, queue_size=1)
+    rospy.Subscriber("/tag_detections6", AprilTagDetectionArray, callback6, queue_size=1)
     rospy.spin()
 
 
