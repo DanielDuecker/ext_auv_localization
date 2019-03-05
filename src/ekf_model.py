@@ -59,6 +59,9 @@ class EkfLocalization:
 		#print(self._x_hat[5])
 
 	def update(self, z, h_at_x, H_cam_at_x, R_mat):
+		#if abs(z[2]) > 1.8:
+		#	R_mat = R_mat*100000
+		
 		#print(' ')
 		#print('yaw_angle cube before update:')
 		#print(self._x_hat[5])
@@ -116,16 +119,17 @@ class EkfLocalization:
 
 	def ekf_publish(self, time_stamp, x_hat, P):
 		# converting the object's orientation from euler-angles to a quaternion, since tf and nav_msgs both describe orientation through quaternions
-		#a = self.get_x_hat()[5]
-		#print('before a = ' + str(a))
-		#print('ekfdebugger: before self x5 = ' + str(self.get_x_hat()[5]))
-		#print('ekfdebugger: before  x5 = ' + str(x_hat[5]))
+		# a = self.get_x_hat()[5]
+		# print('before a = ' + str(a))
+		# print('ekfdebugger: before self x5 = ' + str(self.get_x_hat()[5]))
+		# print('ekfdebugger: before  x5 = ' + str(x_hat[5]))
 		x_hat_internal = copy(x_hat)
 		quat = quaternion_from_euler(x_hat_internal[3], x_hat_internal[4], x_hat_internal[5])
-		#print('ekfdebugger: get self x5 = ' + str(self.get_x_hat()[5]))
-		#print('ekfdebugger: get x5 = ' + str(x_hat[5]))
-		#print('a ' + str(a))
+		# print('ekfdebugger: get self x5 = ' + str(self.get_x_hat()[5]))
+		# print('ekfdebugger: get x5 = ' + str(x_hat[5]))
+		# print('a ' + str(a))
 		# publishing Position, Orientation and Covariance as output of the Extended-Kalman-Filter
+
 		ekfOutput_msg = PoseWithCovarianceStamped()
 		ekfOutput_msg.header.stamp = time_stamp
 		ekfOutput_msg.header.frame_id = 'cube'

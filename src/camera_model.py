@@ -3,7 +3,12 @@ import numpy as np
 import math
 import sympy
 import time
+import rospy
 import symengine
+
+from sympy import *
+from sympy.abc import x, y, z, p, t, s
+
 from numpy.linalg import inv
 from tf.transformations import quaternion_from_euler # defined q = (x, y, z, w)
 from tf.transformations import quaternion_inverse
@@ -14,7 +19,7 @@ from geometry_msgs.msg import TransformStamped
 
 class camera:
 
-	def __init__(self, cam_id, t_x, t_y, t_z, a, b, g, R_mat,z_scale):
+	def __init__(self, cam_id, t_x, t_y, t_z, a, b, g, R_mat,z_scale, x_scale):
 		self._cam_id = cam_id
 		self._t_x = t_x
 		self._t_y = t_y
@@ -24,9 +29,32 @@ class camera:
 		self._g = g
 		self._R_mat = R_mat
 		self._z_scale = z_scale
+		self._x_scale = x_scale
+		self._is_time_offset_init = False
+		self._time_offset_secs = 0
+		self._time_offset_nsecs = 0
 		# class variables
 		self._H_jacobi_sym = self.compute_jacobian()		# symbolic Jacobian of h (variables have not been subsidied)
-
+	def set_time_offset(self, secs, nsecs):
+		if not self._is_time_offset_init:
+			self._time_offset_secs = secs
+			self._time_offset_nsecs = nsecs
+			self._is_time_offset_init = True
+		else:
+			pass
+			
+	def compensate_cam_time(self, new_secs, new_nsecs):
+		out_nsecs = new_nsecs - self._time_offset_nsecs
+		if out_nsecs < 0:
+			out_nsecs = abs(out_nsecs)
+			out_secs = new_secs - self._time_offset_secs-1
+		else:
+			out_secs = new_secs - self._time_offset_secs
+		
+		return out_secs, out_nsecs
+	
+	
+	
 	def get_H_Jac_sym(self):
 		return	self._H_jacobi_sym
 
@@ -46,6 +74,7 @@ class camera:
 
 
 	def h_cam(self, x_cube_w):
+	        #t_h = time.time() # h time_counter
 		# defining parameters
 		x_cube_w = x_cube_w.reshape(1, 6)
     		x_cube_w = x_cube_w[0]
@@ -54,7 +83,8 @@ class camera:
    		z_w = x_cube_w[2]
     		p = x_cube_w[3]*0  # phi
     		t = x_cube_w[4]*0  # theta
-    		s = x_cube_w[5]*0 +math.pi/2 # psi
+    		#s = x_cube_w[5]*0 +math.pi/2 # psi
+    		s = x_cube_w[5]
 
 		# vectors from cube-center to tag-center (cube-system)
 		"""
@@ -68,11 +98,19 @@ class camera:
 		"""
 		new offsets
 		"""
-		offset1 = np.array([0.075, 0, 0, 1]).reshape(4, 1)
-		offset2 = np.array([0, -0.075, 0, 1]).reshape(4, 1)
-		offset3 = np.array([-0.075, 0, 0, 1]).reshape(4, 1)
-		offset4 = np.array([0, 0, -0.075, 1]).reshape(4, 1)
-		offset5 = np.array([0, 0, 0.075, 1]).reshape(4, 1)		
+		offset1 = np.array([0.075, 0, 0, 1]).reshape(4, 1)  #45
+		offset2 = np.array([0, -0.075, 0, 1]).reshape(4, 1) #46
+		offset3 = np.array([-0.075, 0, 0, 1]).reshape(4, 1) #47
+		offset4 = np.array([0, 0, -0.075, 1]).reshape(4, 1) #48
+		offset5 = np.array([0, 0.085, 0, 1]).reshape(4, 1)  #49
+		"""
+		boat offsets
+		"""		
+		#offset1 = np.array([0, -0.082, 0, 1]).reshape(4, 1)  #45
+		#offset2 = np.array([0, 0.082, 0, 1]).reshape(4, 1) #46
+		#offset3 = np.array([0, 0, 0.082, 1]).reshape(4, 1) #47
+		#offset4 = np.array([0.173, 0, 0, 1]).reshape(4, 1) #48
+		#offset5 = np.array([-0.24, 0, 0, 1]).reshape(4, 1)  #49
 		
 		offset = np.array([offset1, offset2, offset3, offset4, offset5]).reshape(20, 1)
 		
@@ -132,7 +170,7 @@ class camera:
 			h[i:i+3, 0:1] = h_temp[0:3]
 			i += 3
 			j_counter +=4
-		
+		"""
 		# this section is only needed to compute h for the jacobian-function (computes h with variables -> not h_at_x)
 		
 		# creating h_but_not_at_x (for H_jac_at_x) analog to above, only with variables instead of concrete numbers
@@ -188,15 +226,20 @@ class camera:
 			j_counter +=4
 		print 'h_sympy:'
 		print h_sympy
-		
+		"""
 
+		
+		#elapse_h = time.time()-t_h
+		#print("elapse_h = " + str(elapse_h)) # time_counter
+		
 		# returning h_at_x
-		return h							# 15x1 vector showing the position of all tags depending on the cube's position
+		return h # 15x1 vector showing the position of all tags depending on the cube's position
 		
 		
 
 
 	def compute_jacobian(self):
+	        t_comp_jac = time.time()
 		x, y, z, p, t, s = sympy.symbols('x y z p t s')
 		a = self._a
 		b = self._b
@@ -205,25 +248,16 @@ class camera:
 		t_y = self._t_y
 		t_z = self._t_z
 		
-		h = sympy.Matrix([[-t_x*sympy.sin(g)*sympy.cos(b) + t_y*(-sympy.sin(a)*sympy.sin(b)*sympy.sin(g) + sympy.cos(a)*sympy.cos(g)) + t_z*(sympy.sin(a)*sympy.cos(g) + sympy.sin(b)*sympy.sin(g)*sympy.cos(a)) - (x + 0.075*sympy.sin(s)*sympy.cos(t))*sympy.sin(g)*sympy.cos(b) + (sympy.sin(a)*sympy.cos(g) + sympy.sin(b)*sympy.sin(g)*sympy.cos(a))*(z - 0.075*sympy.sin(p)*sympy.cos(s) - 0.075*sympy.sin(s)*sympy.sin(t)*sympy.cos(p)) + (-sympy.sin(a)*sympy.sin(b)*sympy.sin(g) + sympy.cos(a)*sympy.cos(g))*(y + 0.075*sympy.sin(p)*sympy.sin(s)*sympy.sin(t) - 0.075*sympy.cos(p)*sympy.cos(s))],
-        [t_x*sympy.sin(b) - t_y*sympy.sin(a)*sympy.cos(b) + t_z*sympy.cos(a)*sympy.cos(b) + (x + 0.075*sympy.sin(s)*sympy.cos(t))*sympy.sin(b) - (y + 0.075*sympy.sin(p)*sympy.sin(s)*sympy.sin(t) - 0.075*sympy.cos(p)*sympy.cos(s))*sympy.sin(a)*sympy.cos(b) + (z - 0.075*sympy.sin(p)*sympy.cos(s) - 0.075*sympy.sin(s)*sympy.sin(t)*sympy.cos(p))*sympy.cos(a)*sympy.cos(b)],
-        [t_x*sympy.cos(b)*sympy.cos(g) + t_y*(sympy.sin(a)*sympy.sin(b)*sympy.cos(g) + sympy.sin(g)*sympy.cos(a)) + t_z*(sympy.sin(a)*sympy.sin(g) - sympy.sin(b)*sympy.cos(a)*sympy.cos(g)) + (x + 0.075*sympy.sin(s)*sympy.cos(t))*sympy.cos(b)*sympy.cos(g) + (sympy.sin(a)*sympy.sin(g) - sympy.sin(b)*sympy.cos(a)*sympy.cos(g))*(z - 0.075*sympy.sin(p)*sympy.cos(s) - 0.075*sympy.sin(s)*sympy.sin(t)*sympy.cos(p)) + (sympy.sin(a)*sympy.sin(b)*sympy.cos(g) + sympy.sin(g)*sympy.cos(a))*(y + 0.075*sympy.sin(p)*sympy.sin(s)*sympy.sin(t) - 0.075*sympy.cos(p)*sympy.cos(s))],
-        [-t_x*sympy.sin(g)*sympy.cos(b) + t_y*(-sympy.sin(a)*sympy.sin(b)*sympy.sin(g) + sympy.cos(a)*sympy.cos(g)) + t_z*(sympy.sin(a)*sympy.cos(g) + sympy.sin(b)*sympy.sin(g)*sympy.cos(a)) - (x - 0.075*sympy.cos(s)*sympy.cos(t))*sympy.sin(g)*sympy.cos(b) + (sympy.sin(a)*sympy.cos(g) + sympy.sin(b)*sympy.sin(g)*sympy.cos(a))*(z - 0.075*sympy.sin(p)*sympy.sin(s) + 0.075*sympy.sin(t)*sympy.cos(p)*sympy.cos(s)) + (-sympy.sin(a)*sympy.sin(b)*sympy.sin(g) + sympy.cos(a)*sympy.cos(g))*(y - 0.075*sympy.sin(p)*sympy.sin(t)*sympy.cos(s) - 0.075*sympy.sin(s)*sympy.cos(p))],
-        [t_x*sympy.sin(b) - t_y*sympy.sin(a)*sympy.cos(b) + t_z*sympy.cos(a)*sympy.cos(b) + (x - 0.075*sympy.cos(s)*sympy.cos(t))*sympy.sin(b) - (y - 0.075*sympy.sin(p)*sympy.sin(t)*sympy.cos(s) - 0.075*sympy.sin(s)*sympy.cos(p))*sympy.sin(a)*sympy.cos(b) + (z - 0.075*sympy.sin(p)*sympy.sin(s) + 0.075*sympy.sin(t)*sympy.cos(p)*sympy.cos(s))*sympy.cos(a)*sympy.cos(b)],
-        [t_x*sympy.cos(b)*sympy.cos(g) + t_y*(sympy.sin(a)*sympy.sin(b)*sympy.cos(g) + sympy.sin(g)*sympy.cos(a)) + t_z*(sympy.sin(a)*sympy.sin(g) - sympy.sin(b)*sympy.cos(a)*sympy.cos(g)) + (x - 0.075*sympy.cos(s)*sympy.cos(t))*sympy.cos(b)*sympy.cos(g) + (sympy.sin(a)*sympy.sin(g) - sympy.sin(b)*sympy.cos(a)*sympy.cos(g))*(z - 0.075*sympy.sin(p)*sympy.sin(s) + 0.075*sympy.sin(t)*sympy.cos(p)*sympy.cos(s)) + (sympy.sin(a)*sympy.sin(b)*sympy.cos(g) + sympy.sin(g)*sympy.cos(a))*(y - 0.075*sympy.sin(p)*sympy.sin(t)*sympy.cos(s) - 0.075*sympy.sin(s)*sympy.cos(p))],
-        [-t_x*sympy.sin(g)*sympy.cos(b) + t_y*(-sympy.sin(a)*sympy.sin(b)*sympy.sin(g) + sympy.cos(a)*sympy.cos(g)) + t_z*(sympy.sin(a)*sympy.cos(g) + sympy.sin(b)*sympy.sin(g)*sympy.cos(a)) - (x - 0.075*sympy.sin(s)*sympy.cos(t))*sympy.sin(g)*sympy.cos(b) + (sympy.sin(a)*sympy.cos(g) + sympy.sin(b)*sympy.sin(g)*sympy.cos(a))*(z + 0.075*sympy.sin(p)*sympy.cos(s) + 0.075*sympy.sin(s)*sympy.sin(t)*sympy.cos(p)) + (-sympy.sin(a)*sympy.sin(b)*sympy.sin(g) + sympy.cos(a)*sympy.cos(g))*(y - 0.075*sympy.sin(p)*sympy.sin(s)*sympy.sin(t) + 0.075*sympy.cos(p)*sympy.cos(s))], 
-        [t_x*sympy.sin(b) - t_y*sympy.sin(a)*sympy.cos(b) + t_z*sympy.cos(a)*sympy.cos(b) + (x - 0.075*sympy.sin(s)*sympy.cos(t))*sympy.sin(b) - (y - 0.075*sympy.sin(p)*sympy.sin(s)*sympy.sin(t) + 0.075*sympy.cos(p)*sympy.cos(s))*sympy.sin(a)*sympy.cos(b) + (z + 0.075*sympy.sin(p)*sympy.cos(s) + 0.075*sympy.sin(s)*sympy.sin(t)*sympy.cos(p))*sympy.cos(a)*sympy.cos(b)],
-        [t_x*sympy.cos(b)*sympy.cos(g) + t_y*(sympy.sin(a)*sympy.sin(b)*sympy.cos(g) + sympy.sin(g)*sympy.cos(a)) + t_z*(sympy.sin(a)*sympy.sin(g) - sympy.sin(b)*sympy.cos(a)*sympy.cos(g)) + (x - 0.075*sympy.sin(s)*sympy.cos(t))*sympy.cos(b)*sympy.cos(g) + (sympy.sin(a)*sympy.sin(g) - sympy.sin(b)*sympy.cos(a)*sympy.cos(g))*(z + 0.075*sympy.sin(p)*sympy.cos(s) + 0.075*sympy.sin(s)*sympy.sin(t)*sympy.cos(p)) + (sympy.sin(a)*sympy.sin(b)*sympy.cos(g) + sympy.sin(g)*sympy.cos(a))*(y - 0.075*sympy.sin(p)*sympy.sin(s)*sympy.sin(t) + 0.075*sympy.cos(p)*sympy.cos(s))],
-        [-t_x*sympy.sin(g)*sympy.cos(b) + t_y*(-sympy.sin(a)*sympy.sin(b)*sympy.sin(g) + sympy.cos(a)*sympy.cos(g)) + t_z*(sympy.sin(a)*sympy.cos(g) + sympy.sin(b)*sympy.sin(g)*sympy.cos(a)) - (x - 0.075*sympy.sin(t))*sympy.sin(g)*sympy.cos(b) + (y + 0.075*sympy.sin(p)*sympy.cos(t))*(-sympy.sin(a)*sympy.sin(b)*sympy.sin(g) + sympy.cos(a)*sympy.cos(g)) + (z - 0.075*sympy.cos(p)*sympy.cos(t))*(sympy.sin(a)*sympy.cos(g) + sympy.sin(b)*sympy.sin(g)*sympy.cos(a))], 
-        [t_x*sympy.sin(b) - t_y*sympy.sin(a)*sympy.cos(b) + t_z*sympy.cos(a)*sympy.cos(b) + (x - 0.075*sympy.sin(t))*sympy.sin(b) - (y + 0.075*sympy.sin(p)*sympy.cos(t))*sympy.sin(a)*sympy.cos(b) + (z - 0.075*sympy.cos(p)*sympy.cos(t))*sympy.cos(a)*sympy.cos(b)],
-        [t_x*sympy.cos(b)*sympy.cos(g) + t_y*(sympy.sin(a)*sympy.sin(b)*sympy.cos(g) + sympy.sin(g)*sympy.cos(a)) + t_z*(sympy.sin(a)*sympy.sin(g) - sympy.sin(b)*sympy.cos(a)*sympy.cos(g)) + (x - 0.075*sympy.sin(t))*sympy.cos(b)*sympy.cos(g) + (y + 0.075*sympy.sin(p)*sympy.cos(t))*(sympy.sin(a)*sympy.sin(b)*sympy.cos(g) + sympy.sin(g)*sympy.cos(a)) + (z - 0.075*sympy.cos(p)*sympy.cos(t))*(sympy.sin(a)*sympy.sin(g) - sympy.sin(b)*sympy.cos(a)*sympy.cos(g))], 
-        [-t_x*sympy.sin(g)*sympy.cos(b) + t_y*(-sympy.sin(a)*sympy.sin(b)*sympy.sin(g) + sympy.cos(a)*sympy.cos(g)) + t_z*(sympy.sin(a)*sympy.cos(g) + sympy.sin(b)*sympy.sin(g)*sympy.cos(a)) - (x + 0.075*sympy.sin(t))*sympy.sin(g)*sympy.cos(b) + (y - 0.075*sympy.sin(p)*sympy.cos(t))*(-sympy.sin(a)*sympy.sin(b)*sympy.sin(g) + sympy.cos(a)*sympy.cos(g)) + (z + 0.075*sympy.cos(p)*sympy.cos(t))*(sympy.sin(a)*sympy.cos(g) + sympy.sin(b)*sympy.sin(g)*sympy.cos(a))], 
-        [t_x*sympy.sin(b) - t_y*sympy.sin(a)*sympy.cos(b) + t_z*sympy.cos(a)*sympy.cos(b) + (x + 0.075*sympy.sin(t))*sympy.sin(b) - (y - 0.075*sympy.sin(p)*sympy.cos(t))*sympy.sin(a)*sympy.cos(b) + (z + 0.075*sympy.cos(p)*sympy.cos(t))*sympy.cos(a)*sympy.cos(b)],
-        [t_x*sympy.cos(b)*sympy.cos(g) + t_y*(sympy.sin(a)*sympy.sin(b)*sympy.cos(g) + sympy.sin(g)*sympy.cos(a)) + t_z*(sympy.sin(a)*sympy.sin(g) - sympy.sin(b)*sympy.cos(a)*sympy.cos(g)) + (x + 0.075*sympy.sin(t))*sympy.cos(b)*sympy.cos(g) + (y - 0.075*sympy.sin(p)*sympy.cos(t))*(sympy.sin(a)*sympy.sin(b)*sympy.cos(g) + sympy.sin(g)*sympy.cos(a)) + (z + 0.075*sympy.cos(p)*sympy.cos(t))*(sympy.sin(a)*sympy.sin(g) - sympy.sin(b)*sympy.cos(a)*sympy.cos(g))]])
+		h = sympy.Matrix([[-t_x*sympy.sin(g)*sympy.cos(b) + t_y*(-sympy.sin(a)*sympy.sin(b)*sympy.sin(g) + sympy.cos(a)*sympy.cos(g)) + t_z*(sympy.sin(a)*sympy.cos(g) + sympy.sin(b)*sympy.sin(g)*sympy.cos(a)) - (x + 0.082*sympy.sin(s)*sympy.cos(t))*sympy.sin(g)*sympy.cos(b) + (sympy.sin(a)*sympy.cos(g) + sympy.sin(b)*sympy.sin(g)*sympy.cos(a))*(z - 0.082*sympy.sin(p)*sympy.cos(s) - 0.082*sympy.sin(s)*sympy.sin(t)*sympy.cos(p)) + (-sympy.sin(a)*sympy.sin(b)*sympy.sin(g) + sympy.cos(a)*sympy.cos(g))*(y + 0.082*sympy.sin(p)*sympy.sin(s)*sympy.sin(t) - 0.082*sympy.cos(p)*sympy.cos(s))], [t_x*sympy.sin(b) - t_y*sympy.sin(a)*sympy.cos(b) + t_z*sympy.cos(a)*sympy.cos(b) + (x + 0.082*sympy.sin(s)*sympy.cos(t))*sympy.sin(b) - (y + 0.082*sympy.sin(p)*sympy.sin(s)*sympy.sin(t) - 0.082*sympy.cos(p)*sympy.cos(s))*sympy.sin(a)*sympy.cos(b) + (z - 0.082*sympy.sin(p)*sympy.cos(s) - 0.082*sympy.sin(s)*sympy.sin(t)*sympy.cos(p))*sympy.cos(a)*sympy.cos(b)], [t_x*sympy.cos(b)*sympy.cos(g) + t_y*(sympy.sin(a)*sympy.sin(b)*sympy.cos(g) + sympy.sin(g)*sympy.cos(a)) + t_z*(sympy.sin(a)*sympy.sin(g) - sympy.sin(b)*sympy.cos(a)*sympy.cos(g)) + (x + 0.082*sympy.sin(s)*sympy.cos(t))*sympy.cos(b)*sympy.cos(g) + (sympy.sin(a)*sympy.sin(g) - sympy.sin(b)*sympy.cos(a)*sympy.cos(g))*(z - 0.082*sympy.sin(p)*sympy.cos(s) - 0.082*sympy.sin(s)*sympy.sin(t)*sympy.cos(p)) + (sympy.sin(a)*sympy.sin(b)*sympy.cos(g) + sympy.sin(g)*sympy.cos(a))*(y + 0.082*sympy.sin(p)*sympy.sin(s)*sympy.sin(t) - 0.082*sympy.cos(p)*sympy.cos(s))], [-t_x*sympy.sin(g)*sympy.cos(b) + t_y*(-sympy.sin(a)*sympy.sin(b)*sympy.sin(g) + sympy.cos(a)*sympy.cos(g)) + t_z*(sympy.sin(a)*sympy.cos(g) + sympy.sin(b)*sympy.sin(g)*sympy.cos(a)) - (x - 0.082*sympy.sin(s)*sympy.cos(t))*sympy.sin(g)*sympy.cos(b) + (sympy.sin(a)*sympy.cos(g) + sympy.sin(b)*sympy.sin(g)*sympy.cos(a))*(z + 0.082*sympy.sin(p)*sympy.cos(s) + 0.082*sympy.sin(s)*sympy.sin(t)*sympy.cos(p)) + (-sympy.sin(a)*sympy.sin(b)*sympy.sin(g) + sympy.cos(a)*sympy.cos(g))*(y - 0.082*sympy.sin(p)*sympy.sin(s)*sympy.sin(t) + 0.082*sympy.cos(p)*sympy.cos(s))], [t_x*sympy.sin(b) - t_y*sympy.sin(a)*sympy.cos(b) + t_z*sympy.cos(a)*sympy.cos(b) + (x - 0.082*sympy.sin(s)*sympy.cos(t))*sympy.sin(b) - (y - 0.082*sympy.sin(p)*sympy.sin(s)*sympy.sin(t) + 0.082*sympy.cos(p)*sympy.cos(s))*sympy.sin(a)*sympy.cos(b) + (z + 0.082*sympy.sin(p)*sympy.cos(s) + 0.082*sympy.sin(s)*sympy.sin(t)*sympy.cos(p))*sympy.cos(a)*sympy.cos(b)], [t_x*sympy.cos(b)*sympy.cos(g) + t_y*(sympy.sin(a)*sympy.sin(b)*sympy.cos(g) + sympy.sin(g)*sympy.cos(a)) + t_z*(sympy.sin(a)*sympy.sin(g) - sympy.sin(b)*sympy.cos(a)*sympy.cos(g)) + (x - 0.082*sympy.sin(s)*sympy.cos(t))*sympy.cos(b)*sympy.cos(g) + (sympy.sin(a)*sympy.sin(g) - sympy.sin(b)*sympy.cos(a)*sympy.cos(g))*(z + 0.082*sympy.sin(p)*sympy.cos(s) + 0.082*sympy.sin(s)*sympy.sin(t)*sympy.cos(p)) + (sympy.sin(a)*sympy.sin(b)*sympy.cos(g) + sympy.sin(g)*sympy.cos(a))*(y - 0.082*sympy.sin(p)*sympy.sin(s)*sympy.sin(t) + 0.082*sympy.cos(p)*sympy.cos(s))], [-t_x*sympy.sin(g)*sympy.cos(b) + t_y*(-sympy.sin(a)*sympy.sin(b)*sympy.sin(g) + sympy.cos(a)*sympy.cos(g)) + t_z*(sympy.sin(a)*sympy.cos(g) + sympy.sin(b)*sympy.sin(g)*sympy.cos(a)) - (x + 0.082*sympy.sin(t))*sympy.sin(g)*sympy.cos(b) + (y - 0.082*sympy.sin(p)*sympy.cos(t))*(-sympy.sin(a)*sympy.sin(b)*sympy.sin(g) + sympy.cos(a)*sympy.cos(g)) + (z + 0.082*sympy.cos(p)*sympy.cos(t))*(sympy.sin(a)*sympy.cos(g) + sympy.sin(b)*sympy.sin(g)*sympy.cos(a))], [t_x*sympy.sin(b) - t_y*sympy.sin(a)*sympy.cos(b) + t_z*sympy.cos(a)*sympy.cos(b) + (x + 0.082*sympy.sin(t))*sympy.sin(b) - (y - 0.082*sympy.sin(p)*sympy.cos(t))*sympy.sin(a)*sympy.cos(b) + (z + 0.082*sympy.cos(p)*sympy.cos(t))*sympy.cos(a)*sympy.cos(b)], [t_x*sympy.cos(b)*sympy.cos(g) + t_y*(sympy.sin(a)*sympy.sin(b)*sympy.cos(g) + sympy.sin(g)*sympy.cos(a)) + t_z*(sympy.sin(a)*sympy.sin(g) - sympy.sin(b)*sympy.cos(a)*sympy.cos(g)) + (x + 0.082*sympy.sin(t))*sympy.cos(b)*sympy.cos(g) + (y - 0.082*sympy.sin(p)*sympy.cos(t))*(sympy.sin(a)*sympy.sin(b)*sympy.cos(g) + sympy.sin(g)*sympy.cos(a)) + (z + 0.082*sympy.cos(p)*sympy.cos(t))*(sympy.sin(a)*sympy.sin(g) - sympy.sin(b)*sympy.cos(a)*sympy.cos(g))], [-t_x*sympy.sin(g)*sympy.cos(b) + t_y*(-sympy.sin(a)*sympy.sin(b)*sympy.sin(g) + sympy.cos(a)*sympy.cos(g)) + t_z*(sympy.sin(a)*sympy.cos(g) + sympy.sin(b)*sympy.sin(g)*sympy.cos(a)) - (x + 0.173*sympy.cos(s)*sympy.cos(t))*sympy.sin(g)*sympy.cos(b) + (sympy.sin(a)*sympy.cos(g) + sympy.sin(b)*sympy.sin(g)*sympy.cos(a))*(z + 0.173*sympy.sin(p)*sympy.sin(s) - 0.173*sympy.sin(t)*sympy.cos(p)*sympy.cos(s)) + (-sympy.sin(a)*sympy.sin(b)*sympy.sin(g) + sympy.cos(a)*sympy.cos(g))*(y + 0.173*sympy.sin(p)*sympy.sin(t)*sympy.cos(s) + 0.173*sympy.sin(s)*sympy.cos(p))], [t_x*sympy.sin(b) - t_y*sympy.sin(a)*sympy.cos(b) + t_z*sympy.cos(a)*sympy.cos(b) + (x + 0.173*sympy.cos(s)*sympy.cos(t))*sympy.sin(b) - (y + 0.173*sympy.sin(p)*sympy.sin(t)*sympy.cos(s) + 0.173*sympy.sin(s)*sympy.cos(p))*sympy.sin(a)*sympy.cos(b) + (z + 0.173*sympy.sin(p)*sympy.sin(s) - 0.173*sympy.sin(t)*sympy.cos(p)*sympy.cos(s))*sympy.cos(a)*sympy.cos(b)], [t_x*sympy.cos(b)*sympy.cos(g) + t_y*(sympy.sin(a)*sympy.sin(b)*sympy.cos(g) + sympy.sin(g)*sympy.cos(a)) + t_z*(sympy.sin(a)*sympy.sin(g) - sympy.sin(b)*sympy.cos(a)*sympy.cos(g)) + (x + 0.173*sympy.cos(s)*sympy.cos(t))*sympy.cos(b)*sympy.cos(g) + (sympy.sin(a)*sympy.sin(g) - sympy.sin(b)*sympy.cos(a)*sympy.cos(g))*(z + 0.173*sympy.sin(p)*sympy.sin(s) - 0.173*sympy.sin(t)*sympy.cos(p)*sympy.cos(s)) + (sympy.sin(a)*sympy.sin(b)*sympy.cos(g) + sympy.sin(g)*sympy.cos(a))*(y + 0.173*sympy.sin(p)*sympy.sin(t)*sympy.cos(s) + 0.173*sympy.sin(s)*sympy.cos(p))], [-t_x*sympy.sin(g)*sympy.cos(b) + t_y*(-sympy.sin(a)*sympy.sin(b)*sympy.sin(g) + sympy.cos(a)*sympy.cos(g)) + t_z*(sympy.sin(a)*sympy.cos(g) + sympy.sin(b)*sympy.sin(g)*sympy.cos(a)) - (x - 0.24*sympy.cos(s)*sympy.cos(t))*sympy.sin(g)*sympy.cos(b) + (sympy.sin(a)*sympy.cos(g) + sympy.sin(b)*sympy.sin(g)*sympy.cos(a))*(z - 0.24*sympy.sin(p)*sympy.sin(s) + 0.24*sympy.sin(t)*sympy.cos(p)*sympy.cos(s)) + (-sympy.sin(a)*sympy.sin(b)*sympy.sin(g) + sympy.cos(a)*sympy.cos(g))*(y - 0.24*sympy.sin(p)*sympy.sin(t)*sympy.cos(s) - 0.24*sympy.sin(s)*sympy.cos(p))], [t_x*sympy.sin(b) - t_y*sympy.sin(a)*sympy.cos(b) + t_z*sympy.cos(a)*sympy.cos(b) + (x - 0.24*sympy.cos(s)*sympy.cos(t))*sympy.sin(b) - (y - 0.24*sympy.sin(p)*sympy.sin(t)*sympy.cos(s) - 0.24*sympy.sin(s)*sympy.cos(p))*sympy.sin(a)*sympy.cos(b) + (z - 0.24*sympy.sin(p)*sympy.sin(s) + 0.24*sympy.sin(t)*sympy.cos(p)*sympy.cos(s))*sympy.cos(a)*sympy.cos(b)], [t_x*sympy.cos(b)*sympy.cos(g) + t_y*(sympy.sin(a)*sympy.sin(b)*sympy.cos(g) + sympy.sin(g)*sympy.cos(a)) + t_z*(sympy.sin(a)*sympy.sin(g) - sympy.sin(b)*sympy.cos(a)*sympy.cos(g)) + (x - 0.24*sympy.cos(s)*sympy.cos(t))*sympy.cos(b)*sympy.cos(g) + (sympy.sin(a)*sympy.sin(g) - sympy.sin(b)*sympy.cos(a)*sympy.cos(g))*(z - 0.24*sympy.sin(p)*sympy.sin(s) + 0.24*sympy.sin(t)*sympy.cos(p)*sympy.cos(s)) + (sympy.sin(a)*sympy.sin(b)*sympy.cos(g) + sympy.sin(g)*sympy.cos(a))*(y - 0.24*sympy.sin(p)*sympy.sin(t)*sympy.cos(s) - 0.24*sympy.sin(s)*sympy.cos(p))]])
+
+
 		h_c = sympy.Matrix(h)
 		variables = sympy.Matrix([x, y, z, p, t, s])
-
-		return h_c.jacobian(variables)  #Jacobian of h(x)
+                elapse_comp_jac = time.time() - t_comp_jac
+                print("time to compute jacobian at startup = " + str(elapse_comp_jac))
+                
+                # H(x) Jacobian of h(x)
+		return h_c.jacobian(variables)  
 
 
 	def get_R_mat(self):
@@ -231,19 +265,34 @@ class camera:
 
 	
 	def H_jac_at_x(self, x_w_hat):  # evaluate the jacobian H from a camera at estimate x_w_hat
+	        
+	        
 		H_jac = self.get_H_Jac_sym()
+		
 		# in: current position estimate x_w_hat
     		# out: jacobian evaluated at x_w_hat
     		x_w_hat = x_w_hat.reshape(1, 6)
     		x_w_hat = x_w_hat[0]
     		x, y, z, p, t, s = sympy.symbols('x y z p t s')
+    		
     		x_w_hat_help = sympy.Matrix([x_w_hat[0], x_w_hat[1], x_w_hat[2], x_w_hat[3], x_w_hat[4], x_w_hat[5]])  # converting the incoming numpy array into a sympy array
+    		
     		H_jac_at_x_sympy = H_jac.subs(zip([x, y, z, p, t, s], [x_w_hat_help[0], x_w_hat_help[1], x_w_hat_help[2], x_w_hat_help[3], x_w_hat_help[4], x_w_hat_help[5]]))
+    		
+    		t_eval_jac = time.time()
     		H_jac_at_x = np.array(H_jac_at_x_sympy).astype(np.float64)
+    		
+    		elapse_eval_jac = time.time() - t_eval_jac
+    		print("time to eval jac at x = " + str(elapse_eval_jac))
+    		
     		return H_jac_at_x
     		
     	def callcam(self, ekf, pub_tf_cam, no_tag, msg):
 	    	#print('ekfcallcam: get x5 = ' + str(ekf.get_x_hat()[5]))
+	    	#print('seconds from msg:')
+	    	#print (str(msg.header.stamp.secs-rospy.get_rostime().secs) + ' ' + str(msg.header.stamp.nsecs-rospy.get_rostime().nsecs))
+	    	#print('actual current time')
+	    	#print(str(rospy.get_rostime().secs)+' '+str(rospy.get_rostime().nsecs))
     		ekf.predict()
 		time_stamp = msg.header.stamp
 		if len(msg.detections) == 0:
@@ -257,48 +306,54 @@ class camera:
 			h_sub = np.zeros((15, 1))
 			R_sub = np.zeros((15, 15))
 			H_jac_at_x_sub = np.zeros((15, 6))
+			R_scale = 0
 			i = 0
 			#z_scale = 1/1.35
 			while i < len(msg.detections):
 				if msg.detections[i].id == (45,):  # paranthesis and comma necessary since only then does "msg.detections[i].id" truely equal the subscriber output (query about tag-id)
-					h_sub[0:3, 0:1] += h_cam[0:3, 0:1]		
-					R_sub[0:3, 0:3] += R_cam[0:3, 0:3]
-					H_jac_at_x_sub[0:3, 0:6] += H_cam_at_x[0:3, 0:6]
-					z[0] += msg.detections[i].pose.pose.pose.position.x  			#z
-					z[1] += msg.detections[i].pose.pose.pose.position.y  			#x
+					z[0] += msg.detections[i].pose.pose.pose.position.x*self._x_scale  			#z
+					z[1] += msg.detections[i].pose.pose.pose.position.y             	#x
 					z[2] += msg.detections[i].pose.pose.pose.position.z*self._z_scale	#y
+					h_sub[0:3, 0:1] += h_cam[0:3, 0:1]		
+					H_jac_at_x_sub[0:3, 0:6] += H_cam_at_x[0:3, 0:6]
+					R_sub[0:3, 0:3] += R_cam[0:3, 0:3]
+					#R_sub[1,1] += R_scale*(z[1]*100)**2
 				elif msg.detections[i].id == (46,):
-					h_sub[3:6, 0:1] += h_cam[3:6, 0:1]
-					R_sub[3:6, 3:6] += R_cam[3:6, 3:6]
+					z[3] += msg.detections[i].pose.pose.pose.position.x*self._x_scale  			#z
+					z[4] += msg.detections[i].pose.pose.pose.position.y  			#x
+					z[5] += msg.detections[i].pose.pose.pose.position.z*self._z_scale	#y
+					h_sub[3:6, 0:1] += h_cam[3:6, 0:1]		
 					H_jac_at_x_sub[3:6, 0:6] += H_cam_at_x[3:6, 0:6]
-					z[3] += msg.detections[i].pose.pose.pose.position.x
-					z[4] += msg.detections[i].pose.pose.pose.position.y
-					z[5] += msg.detections[i].pose.pose.pose.position.z*self._z_scale
+					R_sub[3:6, 3:6] += R_cam[3:6, 3:6]
+					#R_sub[4,4] += R_scale*(z[4]*100)**2
 				elif msg.detections[i].id == (47,):
-					h_sub[6:9, 0:1] += h_cam[6:9, 0:1]
-					R_sub[6:9, 6:9] += R_cam[6:9, 6:9]
-					H_jac_at_x_sub[6:9, 0:6] += H_cam_at_x[6:9, 0:6]
-					z[6] += msg.detections[i].pose.pose.pose.position.x
+					z[6] += msg.detections[i].pose.pose.pose.position.x*self._x_scale
 					z[7] += msg.detections[i].pose.pose.pose.position.y
 					z[8] += msg.detections[i].pose.pose.pose.position.z*self._z_scale
+					h_sub[6:9, 0:1] += h_cam[6:9, 0:1]
+					H_jac_at_x_sub[6:9, 0:6] += H_cam_at_x[6:9, 0:6]
+					R_sub[6:9, 6:9] += R_cam[6:9, 6:9]
+					#R_sub[7,7] += R_scale*(z[7]*100)**2
 				elif msg.detections[i].id == (48,):
-					h_sub[9:12, 0:1] += h_cam[9:12, 0:1]
-					R_sub[9:12, 9:12] += R_cam[9:12, 9:12]
-					H_jac_at_x_sub[9:12, 0:6] += H_cam_at_x[9:12, 0:6]
-					z[9] += msg.detections[i].pose.pose.pose.position.x
+					z[9] += msg.detections[i].pose.pose.pose.position.x*self._x_scale
 					z[10] += msg.detections[i].pose.pose.pose.position.y
 					z[11] += msg.detections[i].pose.pose.pose.position.z*self._z_scale
+					h_sub[9:12, 0:1] += h_cam[9:12, 0:1]	
+					H_jac_at_x_sub[9:12, 0:6] += H_cam_at_x[9:12, 0:6]
+					R_sub[9:12, 9:12] += R_cam[9:12, 9:12]
+					#R_sub[10,10] += R_scale*(z[10]*100)**2
 				elif msg.detections[i].id == (49,):
-					h_sub[12:15, 0:1] += h_cam[12:15, 0:1]
-					R_sub[12:15, 12:15] += R_cam[12:15, 12:15]
-					H_jac_at_x_sub[12:15, 0:6] += H_cam_at_x[12:15, 0:6]
-					z[12] += msg.detections[i].pose.pose.pose.position.x
+					z[12] += msg.detections[i].pose.pose.pose.position.x*self._x_scale
 					z[13] += msg.detections[i].pose.pose.pose.position.y
 					z[14] += msg.detections[i].pose.pose.pose.position.z*self._z_scale
+					h_sub[12:15, 0:1] += h_cam[12:15, 0:1]
+					H_jac_at_x_sub[12:15, 0:6] += H_cam_at_x[12:15, 0:6]
+					R_sub[12:15, 12:15] += R_cam[12:15, 12:15]
+					#R_sub[13,13] += R_scale*(z[13]*100)**2
 				else: 
 					pass
 				i += 1	
-
+			
 			R_sub = R_sub[R_sub.nonzero()]  # one dimensional vector containing all non zero values of the 15x15 R matrix
 			z = z[z.nonzero()]
 			# making a diagonal matrix R out of nonzero elements of R_sub ONLY IF WE SEE A TAG AT ALL(ultimate goal: scaling R according to how many tags we see)
@@ -337,7 +392,7 @@ class camera:
 			h_sub = h_sub.reshape(len(h_sub), 1)  					
 			# turning z (row-vector by default) into column-vactor
 			# new measurement-vector considering only the position of the tags that are currently measured
-			z = z.reshape(len(z), 1) 						
+			z = z.reshape(len(z), 1)						
 			if not len(z) == 0:
 				# passing the matrices to "ekf", a class instance of EkfLocalization
 				ekf.ekf_get_measurement(z, h_sub, H_start, R_start, time_stamp, self._cam_id)	
